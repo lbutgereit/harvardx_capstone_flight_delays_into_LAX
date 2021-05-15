@@ -1,0 +1,367 @@
+---
+title: "Harvardx Capstone Flight Delays into LAX"
+author: "Laura Butgereit"
+date: "08/05/2021"
+output: 
+  bookdown::pdf_document2:
+    number_sections: true
+    toc: true
+    lof: yes
+    keep_tex: true
+    extra_dependencies: ["float"]
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      fig.pos="H", fig.height=6, fig.width=6, fig.align="center",
+                      out.extra="")
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(Metrics)) install.packages("Metrics", repos = "http://cran.us.r-project.org")
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(dplyr)
+if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+```
+
+```{r, echo=FALSE}
+#
+# this is the theme for the graphs and a few functions to
+# ensure that all the graphs look similar
+#
+# theme from https://emanuelaf.github.io/own-ggplot-theme.html
+#
+my_theme <- function() {
+  theme(
+    # add border 1)
+    panel.border = element_rect(colour = "deepskyblue4", fill = NA, linetype = 1),
+    # color background 2)
+    panel.background = element_rect(fill = "deepskyblue"),
+    # modify grid 3)
+    panel.grid.major.x = element_line(colour = "deepskyblue4", linetype = 3, size = 0.5),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y =  element_line(colour = "deepskyblue4", linetype = 3, size = 0.5),
+    panel.grid.minor.y = element_blank(),
+    # modify text, axis and colour 4) and 5)
+    axis.text = element_text(colour = "deepskyblue4"),
+    axis.title = element_text(colour = "deepskyblue4"),
+    axis.ticks = element_line(colour = "deepskyblue4"),
+    # legend at the bottom 6)
+    legend.position = "top",
+    #plot.fill = "deepskyblue4",
+    plot.title = element_text(colour = "deepskyblue4", hjust = 0.5),
+  )
+}
+update_geom_defaults("bar", list(fill = "deepskyblue4", alpha = 0.6, color = "deepskyblue4"))   # color was blue
+update_geom_defaults("point", list(fill = "deepskyblue4", alpha = 0.6, color = "deepskyblue4"))  # color was blue
+update_geom_defaults("smooth", list(fill = "deepskyblue4", alpha = 0.6, color = "violet"))
+update_geom_defaults("boxplot", list(fill = "deepskyblue4", alpha = 0.6, outlier.color = "violet"))
+
+#
+# this function is to ensure that all histograms 
+# have a similar look and feel
+#
+#
+histogram_graph <- function(data, x, bins=10) {
+  p <- ggplot(aes(x), data=data) +
+    scale_y_continuous()+
+    geom_histogram(bins=bins)  +
+    scale_x_log10() +
+    #theme(plot.title = element_text(hjust = 0.5))+
+    ylab("Quantity") +
+    my_theme()
+  p
+}
+
+#
+# this function is to ensure that all graphs which
+# have rating on the y axis have the same scale etc
+#
+# this will be used by all the graphs which have
+# average ratings on the y axis
+#
+rating_graph <- function(data, x, y) {
+  p <- ggplot(aes(x, y), data=data) +
+    scale_y_continuous(limits=c(0.0, 5.5), breaks = 0:5)+
+    geom_point() + 
+    geom_smooth(method = "loess", formula="y ~ x") +
+    ylab("Average Rating") +
+    my_theme()
+  p
+}
+
+#
+#
+#
+bar_graph <- function(data, x, y) {
+  p <- ggplot(aes(x, y), data=data) +
+    geom_bar(stat = "identity") +
+    my_theme()
+  p
+}
+
+#
+# boxplot function to ensure all boxplots looks
+# similar
+#
+boxplot_graph <- function(data, x) {
+ p <- ggplot(aes(x, y), data=data) +
+    geom_boxplot() +
+    my_theme()
+ p
+}
+
+```
+
+\listoffigures
+
+\listoftables
+\newpage
+
+# Introduction
+
+Wada, wada, wada,
+
+This project was part of a Capstone project in Harvardx's *Professional Certificate in Data Science*.
+
+Section \@ref(environment) describes the computational environment where this
+research was executed.  This section also itemizes any modifications that might
+have needed to be done in order to process the large data files.
+
+Section \@ref(download) describes issues which were encountered in downloading the
+required data files.  This section provides various strategies which were
+utilized to handle these issues.  Section \@ref(edxAndValidation) provides
+information on how the training data and validation data was extracted.
+
+Section \@ref(exploration) of this paper describes the exploration into the dataset.
+This section includes numerical values and some histograms of distributions.
+After the initial exploration, the training dataset was reshaped to expose
+more information. 
+
+Section \@ref(model) describes the various investigations into possible
+models to be able to predict the ratings given to a movie.  There were a
+number of different strategies which were investigated.  Each model is
+described along with the RMSE (root mean square error) for that model.
+
+A summary of the various RMSEs for each model is provided in Sub-Section \@ref(modelsummary).  The results of the model on the validation set is described in Sub-Section \@ref(validation).
+
+Conclusions can be found in Section \@ref(conclusions).
+
+Before continuing with this document, the author wishes to share the wise words of Donald Knuth (1984).  In his journal
+paper entitled *Literate Programming* he states:
+
+\begin{quotation}
+Let us change our traditional attitude to the construction of [computer] programs:  Instead of imagining that our 
+main task is to instruct a 
+\begin{em}
+computer
+\end{em}
+what to do,  let us concentrate rather on explaining to 
+\begin{em}
+human beings
+\end{em}
+what we want a computer to do. 
+
+The practitioner of literate programming can be regarded as an essayist,  whose  main concern  is with 
+exposition and  excellence  of style.  
+Such an author, with thesaurus in hand, chooses the names of variables carefully and explains what each 
+variable means.  He or she strives
+for a program that is comprehensible because its concepts have been introduced in an order that is best for human
+understanding...
+\end{quotation}
+
+The author eschews variables such as *mu* and *y_hat* (which may be familiar to data science practitioners and
+statisticians), in favour of more descriptive variables such as *overall_average* and *predicted_rating*.  Although this practice may
+be in conflict with code examples in (Irizarry, 2021), the author is employed in the IT industry and is attending this
+course with the view of integrating R (running in an automated fashion started by Java programs) into a Spring Boot environment.  As such the practices of good
+naming conventions in source code are well ingrained.
+
+\newpage
+# Compute Environment and Memory issues {#environment}
+
+The analyses presented in the paper were done on a Dell XPS 13 9380 13.3" Core i7-8565U Notebook. The notebook has 8GB memory and a Core i7-8565U processor.  The notebook was running Ubuntu 20.04.2 LTS with R 4.0.3 installed.
+
+## Adding more swap space
+
+There were memory issues and an additional 4G swap space was configured on the notebook with the following Linux commands executed as superuser:
+
+```{r, eval=FALSE, echo=TRUE}
+fallocate -l 4G /harvardx_swapspace
+chmod 600 /harvardx_swapspace
+mkswap /harvardx_swapspace
+swapon /harvardx_swapspace
+```
+
+In order to have this swapspace available automatically when the notebook boots up
+an entry needed to be made in the file
+
+```{r, eval=FALSE, echo=TRUE}
+/etc/fstab
+```
+
+which looks like
+
+```{r, eval=FALSE, echo=TRUE}
+/harvardx_swapfile none swap sw 0 0
+```
+
+## Modifying *swappiness*
+
+The *swappiness* value defines how aggressively the Linux kernel swaps memory pages to swap devices.  The value ranges
+between zero and one hundred (Ljubuncic, 2015).  A higher *swappiness* value implies a stronger preference toward
+swapping more readily.  A lower value implies not swapping (Love, 2013).  The value can be configured on this file
+
+```{r, eval=FALSE, echo=TRUE}
+/etc/sysctl.conf
+```
+
+The entry looks like
+
+```{r, eval=FALSE, echo=TRUE}
+vm.swappiness=10
+```
+
+This change was made to stop Linux swapping excessively.
+
+## Request extra memory when executing R
+
+In order to successfully build and execute, the scripts were run in R and not Rstudio with the following
+command
+
+```{r, eval=FALSE, echo=TRUE}
+R -max-mem-size=7000M --vanilla < Butgereit-script.R  > output.txt
+```
+
+The report was generated with the following command
+```{r, eval=FALSE, echo=TRUE}
+Rscript -e "rmarkdown::render('Butgereit-report.Rmd')"
+```
+
+\newpage
+# Downloading, unzipping, and validating data {#download}
+
+The author lives in a rural area of Africa where download speeds are slow and connections often break.  For that reason, the code supplied by the Edx website for downloading data was modified slightly to include a *timeout* parameter.  *The code reviewer may need to increase the parameter depending on his or her local circumstances.*  The code then attempted to download 
+the required zip file, store the file locally, and then to check the size of the downloaded file to verify that the entire data file was downloaded.  If the download and size check did not succeed, error messages are printed and the script is stopped.  If the download and size check did succeed, only then is the data unzipped.
+
+## Set up pseudo-constants
+
+First a handful of pseudo-constants were set up
+
+```{r, echo=TRUE}
+download_timeout <- 600 # seconds == 10 minutes
+on_time_performance_url <- "https://dax-cdn.cdn.appdomain.cloud/dax-airline/1.0.1/airline_2m.tar.gz"
+on_time_performance_gz <- "airline_2m.tar.gz"
+on_time_performance_gz_size <- 151681776
+on_time_performance_csv <- "airline_2m.csv"
+on_time_performance_csv_size <- 882162600
+on_time_performance_rda <- "on_time_performance.rda"
+validation_rda <- "validation.rda"
+non_validation_rda <- "non_validation.rda"
+test_rda <- "test.rda"
+train_rda <- "train.rda"
+build_models <- FALSE
+destination_airport <- "LAX"
+
+```
+
+## Download zip file and check sizes
+
+The script was broken up into sections where the sizes of all the downloaded files were tested before the next step was executed
+
+```{r, echo=TRUE}
+#
+# if the gz file has not been downloaded or if it is
+# the wrong size, download it
+#
+if ( (!file.exists(on_time_performance_gz)) ||
+     (file.info(on_time_performance_gz)$size != on_time_performance_gz_size) ) {
+
+        #
+        # Download gz file
+        #
+        print(paste("file", on_time_performance_gz, "does not exist or is the wrong size", sep=" "))
+        print("Downloading it")
+        options(timeout = download_timeout)
+        download.file(on_time_performance_url, on_time_performance_gz)
+        print(paste("Downloaded", file.info(on_time_performance_gz)$size, "bytes"))
+
+        #
+        # check to see if the entire file got downloaded
+        #
+        if ( file.info(on_time_performance_gz)$size == on_time_performance_gz_size) {
+                print(paste(on_time_performance_gz, "downloaded OK", sep=" "))
+        } else {
+                print(paste(on_time_performance_gz, "was not completely downloaded", sep=" "))
+                print(paste("You can download it through your browser by pointing your browser to"))
+                print(on_time_performance-url)
+                stop()
+        }
+}
+```
+
+## Untar file and check sizes
+
+The downloaded file is in gzipped tar format.  The R function *untar* does both a gzip decompress and an untar of the files
+
+
+```{r echo=TRUE}
+#
+# if the csv file does not exist or is the wrong size
+# or if it is older than the gz file, then untar the
+# gz file
+#
+if ( (!file.exists(on_time_performance_csv)) |
+     (file.info(on_time_performance_csv)$size != on_time_performance_csv_size) ||
+     (file.info(on_time_performance_gz)$ctime > file.info(on_time_performance_csv)$ctime) ) {
+
+        #
+        # untar (inclues gz decompress)
+        #
+        print(paste("Untaring (will also do a gz decompress)", on_time_performance_gz, sep=" "))
+        untar(on_time_performance_gz)
+
+        #
+        # check to see if the files sizes are correct
+        #
+        if ( file.info(on_time_performance_csv)$size == on_time_performance_csv_size) {
+                print(paste(on_time_performance_csv, "untared OK", sep=" "))
+        } else {
+                print(paste(on_time_performance_csv, "was not untarred correctly", sep=" "))
+                print(paste("You can try decrompressing and untaring it your self and rerunning this script"))
+                stop()
+        }
+}
+
+```
+
+\newpage
+# Extracting and saving the dataset
+
+
+\newpage
+# Exploratory Analysis {#exploration}
+
+\newpage
+# Model Investigations and Results {#model}
+\newpage
+# Conclusion {#conclusions}
+
+# Acknowledgements {-}
+
+The author would like to thank Professor Irizarry and his team for creating a compelling and
+effective course.  The exercises drew a person into the problem and enticed them to investigate
+the data.  Thank you.
+
+# References {-}
+
+
+Irizarry, R.A., 2021, Introduction to Data Science.
+
+Knuth, D.E., 1984. Literate programming. The Computer Journal, 27(2), pp.97-111.
+
+Ljubuncic, I., 2015. Problem-solving in High Performance Computing: A Situational Awareness Approach with Linux. Morgan Kaufmann.
+
+Love, R., 2013. Linux system programming: talking directly to the kernel and C library. O'Reilly Media, Inc.
