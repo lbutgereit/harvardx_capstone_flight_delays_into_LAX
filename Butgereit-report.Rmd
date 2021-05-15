@@ -1,5 +1,5 @@
 ---
-title: "Harvardx Capstone - Domestic Flight Delays into LAX"
+title: "Harvardx Capstone - Domestic Flight Arrivals Delays into LAX Airport"
 author: "Laura Butgereit"
 date: "08/05/2021"
 output: 
@@ -79,17 +79,17 @@ histogram_graph <- function(data, x, bins=10) {
 
 #
 # this function is to ensure that all graphs which
-# have rating on the y axis have the same scale etc
+# have arrival delays on the Y axis have a similar
+# scale for comparison purposes
 #
-# this will be used by all the graphs which have
-# average ratings on the y axis
 #
-rating_graph <- function(data, x, y) {
+arrival_delay_graph <- function(data, x, y) {
   p <- ggplot(aes(x, y), data=data) +
-    scale_y_continuous(limits=c(0.0, 5.5), breaks = 0:5)+
+    scale_y_continuous(limits=c(mean(non_validation$ArrDelay) - sd(non_validation$ArrDelay),
+			        mean(non_validation$ArrDelay) + sd(non_validation$ArrDelay)))+
     geom_point() + 
     geom_smooth(method = "loess", formula="y ~ x") +
-    ylab("Average Rating") +
+    ylab("Average arrival delay (minutes)") +
     my_theme()
   p
 }
@@ -113,6 +113,16 @@ boxplot_graph <- function(data, x) {
     geom_boxplot() +
     my_theme()
  p
+}
+
+#
+# functions for time handling
+#
+previous_half_hour <- function(time) {
+  minute <- time %% 100
+  hour <- time - minute
+  minute <- ifelse(minute < 30, 0, 30)
+  hour+minute
 }
 
 ```
@@ -387,13 +397,17 @@ if ( (!file.exists(on_time_performance_rda)) ||
         #
         on_time_performance <- csv %>%
                 filter(Dest == destination_airport) %>%
-                select(Year, Month, DayofMonth, DayOfWeek,
-                        DOT_ID_Reporting_Airline,
-                        Flight_Number_Reporting_Airline,
-                        OriginAirportID,
-                        DepTime, ArrTime, ArrDelay) %>%
+		select(Year, Month, DayofMonth, DayOfWeek, 
+ 			DOT_ID_Reporting_Airline,
+			Flight_Number_Reporting_Airline,
+			OriginAirportID, 
+			Tail_Number,
+			Distance,
+			DepTime, ArrTime, ArrDelay) %>%
                 filter(complete.cases(.)) %>%           # NB the full stop
-                mutate(Late = ifelse(ArrDelay > 0, 1, 0))
+		mutate(Late = ifelse(ArrDelay > 0, 1, 0),
+		       departure_slot = previous_half_hour(DepTime),
+		       arrival_slot = previous_half_hour(ArrTime))
 
         print("filtered out NAs and selected columns")
         save(on_time_performance, file=on_time_performance_rda)
@@ -487,15 +501,24 @@ df %>% knitr::kable(caption="Sizes of various datasets",
 # Exploratory Analysis {#exploration}
 
 All values and graphs in this exploratory section refer only to the
-non_validation set.  This includes the training set and test set, but
+*non_validation* set.  This includes the training set and test set combined, but
 specifically excludes the validation set which was extracted and saved
-for future use.
+for future use.  This section explores the data and reports on interesting
+findings.
 
-## Arrival delays
+There are two sub-sections.  The first sub-section looks at specific characteristics
+of the *ArrDelay* data field.  It is important to remember that this data field could be
+positive (a delay) or negative (flight arrived early).  The second sub-section look
+specifically at the boolean field *Late* which indicates whether or not the flight
+was late.
+
+## Investigating *ArrDelay*
+
+### Arrival delays
 
 Although the term is called *ArrDelay*, the value can be positive (indicating
 an actual delay) or negative (indicating that the flight arrived early).
-Statistics about the *ArrDelay* field can be seen in Table Table
+Statistics about the *ArrDelay* field can be seen in Table
 \@ref(tab:ArrDelayStats)
 
 \begin{center}
@@ -517,12 +540,16 @@ Figure \@ref(fig:distribution-arrival-delays).
 flights_per_delays <- non_validation %>% group_by(ArrDelay) %>%
   summarize(number_of_flights = n(), ArrDelay = first(ArrDelay))
 options(scipen=100000)
-histogram_graph(x = flights_per_delays$number_of_flights,
-                data=flights_per_delays, bins=30) +
+bar_graph(x = flights_per_delays$number_of_flights,
+	  y = flights_per_delays$number_of_flights,
+                data=flights_per_delays) +
   xlab("Arrival delay (minutes)") +
-  xlim(min(flights_per_delays$ArrDelay), max(flights_per_delays$ArrDelay))
+  ylab("Number of flights")
 ```
-## Years
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_per_delays)  # free up memory
+```
+### Years
 
 The data spanned a number of years from `r min(non_validation$Year)` to 
 `r max(non_validation$Year)`.  A distribution of the flights through the 
@@ -534,32 +561,40 @@ flights_per_year <- non_validation %>% group_by(Year) %>%
 bar_graph(x = flights_per_year$Year, y = flights_per_year$number_of_flights,
                 data=flights_per_year) +
   xlab("Year") +
-  ylab("Number of arrivals")
+  ylab("Number of flights")
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_per_year)  # free up memory
 ```
 
-# Average arrival delays by year
+# Average delay by year
 
 The average arrival delay by year can be seen in Figure \@ref(fig:average-delay-by-year)
 
 ```{r, average-delay-by-year, fig.cap="Average arrival delay by year"}
 flights_per_year <- non_validation %>% group_by(Year) %>%
   summarize(average_delay = mean(ArrDelay), Year = first(Year))
-bar_graph(x = flights_per_year$Year, y = flights_per_year$average_delay,
+arrival_delay_graph(x = flights_per_year$Year, y = flights_per_year$average_delay,
                 data=flights_per_year) +
-  xlab("Year") +
-  ylab("Average delay (minutes)")
+  xlab("Year") 
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_per_year)  # free up memory
 ```
 
-## Average delay by month
+From Figure \@ref(fig:average-delay-by-year) it is clear that the year of a flight is not
+a predctor of the average arrival delay.
+
+### Average delay by month
 
 The month of the year (indicating the season and possible weather effects) could
-influence arrival delays.  
+influence arrival delays.  This relationship can be seen in Figure \@ref(fig:average-delay-by-month).
 
 
 ```{r, average-delay-by-month, fig.cap="Average arrival delay by month"}
 flights_per_month <- non_validation %>% group_by(Month) %>%
   summarize(average_delay = mean(ArrDelay), Month = first(Month))
-bar_graph(x = flights_per_month$Month, y = flights_per_month$average_delay,
+arrival_delay_graph(x = flights_per_month$Month, y = flights_per_month$average_delay,
                 data=flights_per_month) +
   xlab("Month") +
   ylab("Average delay (minutes)") +
@@ -567,16 +602,47 @@ bar_graph(x = flights_per_month$Month, y = flights_per_month$average_delay,
             labels=c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
 ```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_per_month)  # free up memory
+```
 
-## Arrival delay by day of the week
+From \@ref(fig:average-delay-by-month) one might argue that there is a very slight increase
+in average arrival delays in the summer months (June and July) and at the Christmas
+season (December).  But the change is not significant.
+
+### Arrival delay by day of the month
+
+The day of the month could possibly influence arrival times with end of month traffic
+being different than mid-month traffic.  This relationship can be seen in Figure
+\@ref(fig:average-delay-by-day-of-month).
+
+```{r, average-delay-by-day-of-month, fig.cap="Average arrival delay by day of the month"}
+flights_per_day <- non_validation %>% group_by(DayofMonth) %>%
+  summarize(average_delay = mean(ArrDelay), DayofMonth = first(DayofMonth))
+arrival_delay_graph(x = flights_per_day$DayofMonth, y = flights_per_day$average_delay,
+                data=flights_per_day) +
+  xlab("Day of the Month") +
+  scale_x_continuous(limits=c(1, 31), breaks=1:31)
+
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_per_day)  # free up memory
+```
+
+Although one may argue that Figure \@ref(fig:average-delay-by-day-of-month) shows a very
+slight decrease in average delays at the end of them month, that decrease is not
+significant.
+
+### Arrival delay by day of the week
 
 The day of the week could possibly influence arrival times with weekend traffic
-geting different than weekday traffic.
+geting different than weekday traffic.  This relationship can be seen in Figure
+\@ref(fig:average-delay-by-day).
 
 ```{r, average-delay-by-day, fig.cap="Average arrival delay by day of the week"}
 flights_per_day <- non_validation %>% group_by(DayOfWeek) %>%
   summarize(average_delay = mean(ArrDelay), DayOfWeek = first(DayOfWeek))
-bar_graph(x = flights_per_day$DayOfWeek, y = flights_per_day$average_delay,
+arrival_delay_graph(x = flights_per_day$DayOfWeek, y = flights_per_day$average_delay,
                 data=flights_per_day) +
   xlab("Day of the Week") +
   ylab("Average delay (minutes)") +
@@ -585,6 +651,243 @@ bar_graph(x = flights_per_day$DayOfWeek, y = flights_per_day$average_delay,
                               "Fri", "Sat"))
 
 ```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_per_day)  # free up memory
+```
+
+Figure \@ref(fig:average-delay-by-day) clearly shows that day of the month is not
+a predictor of arrival delays.
+
+### Arrival delay by origin airport
+
+The airport where the flight originated may influence whether or not the flight arrives
+late at the destination airport.  This can be seen in Figure \@ref(fig:average-delay-by-origin-airport)
+
+```{r, average-delay-by-origin-airport, fig.cap="Average arrival delay by origin airport"}
+flights_by_origin_airport <- non_validation %>% group_by(OriginAirportID) %>%
+  summarize(average_delay = mean(ArrDelay), OriginAirportID = first(OriginAirportID))
+arrival_delay_graph(
+    x = reorder(flights_by_origin_airport$OriginAirportID, -flights_by_origin_airport$average_delay),
+    y = flights_by_origin_airport$average_delay,
+    data=flights_by_origin_airport) +
+  xlab("Departing airport (arranged in descending order of delay)") +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.major.x =  element_line(colour = "white", linetype = 3, size = 0.5),
+        panel.grid.minor.x = element_blank())
+
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_by_origin_airport)  # free up memory
+```
+
+As can be seen in Figure \@ref(fig:average-delay-by-origin-airport), the airport from which
+a flight departs or originates is influential in determining whether or not the flight arrives on time
+at its destination.  This could be because the airport of origin may consistently delay
+planes from departing on time or perhaps the airport of origin may consistently have
+foggy weather.  This must be investigated further.
+
+### Arrival delay by airline
+
+The airline itself may be an influencing factor on whether or not a flight arrives
+on time.  This relationship can be seen in \@ref(fig:average-delay-by-airline).
+
+```{r, average-delay-by-airline, fig.cap="Average arrival delay by airline"}
+flights_by_airline <- non_validation %>% group_by(DOT_ID_Reporting_Airline) %>%
+  summarize(average_delay = mean(ArrDelay), 
+		DOT_ID_Reporting_Airline = first(DOT_ID_Reporting_Airline))
+arrival_delay_graph(
+    x = reorder(flights_by_airline$DOT_ID_Reporting_Airline, 
+		-flights_by_airline$average_delay),
+    y = flights_by_airline$average_delay,
+    data=flights_by_airline) +
+  xlab("Airline (arranged in descending order of delay)")  +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.major.x =  element_line(colour = "white", linetype = 3, size = 0.5),
+        panel.grid.minor.x = element_blank())
+
+
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_by_flight_number)  # free up memory
+```
+
+It is clear from \@ref(fig:average-delay-by-airline) that the airline itself is influential
+in determining whether or not its own flights arrive on time.  This is intuitive.  Some
+airline companies pride themselves on their *on time arrival* statistics.
+
+### Arrival delay by flight number
+
+The flight itself may determine whether or not it is late in arriving.  This could be due
+to the departing airport (which would be the same for all flights with the same flight number)
+and also to the airline itself.  It could possibly be because of the crew which is assigned 
+to this flight.  This relationship can be seen in Figure \@ref(fig:average-delay-by-flight-number).
+
+```{r, average-delay-by-flight-number, fig.cap="Average arrival delay by flight number"}
+flights_by_flight_number <- non_validation %>% group_by(Flight_Number_Reporting_Airline) %>%
+  summarize(average_delay = mean(ArrDelay), 
+		Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
+arrival_delay_graph(
+    x = reorder(flights_by_flight_number$Flight_Number_Reporting_Airline, 
+		-flights_by_flight_number$average_delay),
+    y = flights_by_flight_number$average_delay,
+    data=flights_by_flight_number) +
+  xlab("Flight number (arranged in descending order of delay)") +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.major.x =  element_line(colour = "white", linetype = 3, size = 0.5),
+        panel.grid.minor.x = element_blank())
+
+
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_by_flight_number)  # free up memory
+```
+
+It is clear from Figure \@ref(fig:average-delay-by-flight-number) that the scheduled
+flight number itself is a predictor of possible arrival delays for that flight.  This
+must be investigated further.  Care must also be taken to not allow airport of origin,
+airline, and flight number to over emphasize the same fact.
+
+### Arrival delay by tail number (specific airplane)
+
+Physical airplanes have unique tail numbers. The specific physical airplane tself may 
+determine whether or not it is late in arriving.  This may indicate that this
+specific physical airplane flies faster or slower.  This relationship can be seen
+in Figure \@ref(fig:average-delay-by-tail-number).
+
+```{r, average-delay-by-tail-number, fig.cap="Average arrival delay by tail number"}
+flights_by_tail_number <- non_validation %>% group_by(Tail_Number) %>%
+  summarize(average_delay = mean(ArrDelay), 
+		Tail_Number = first(Tail_Number))
+arrival_delay_graph(
+    x = reorder(flights_by_tail_number$Tail_Number, 
+		-flights_by_tail_number$average_delay),
+    y = flights_by_tail_number$average_delay,
+    data=flights_by_tail_number) +
+  xlab("Tail number (arranged in descending order of delay)") +
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        panel.grid.major.x =  element_line(colour = "white", linetype = 3, size = 0.5),
+        panel.grid.minor.x = element_blank())
+
+
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_by_flight_number)  # free up memory
+```
+
+From Figure \@ref(fig:average-delay-by-tail-number), it is clear that the tail number
+is a predictor of arrival delays.  But care must be taken to not allow the airport of
+origin, airline, flight number, and tail number to over emphasize some common
+fact.
+
+### Arrival delay by distance flown
+
+The distance of a flight may influence whether or not there is a delay in arrival.
+This relationship can be seen in Figure \@ref(fig:average-delay-by-distance).
+
+```{r, average-delay-by-distance, fig.cap="Average arrival delay by distance flown"}
+flights_by_distance <- non_validation %>% group_by(Distance) %>%
+  summarize(average_delay = mean(ArrDelay), 
+		Distance = first(Distance))
+arrival_delay_graph(
+    x = flights_by_distance$Distance, 
+    y = flights_by_distance$average_delay,
+    data=flights_by_distance) +
+  xlab("Distance (miles)") 
+
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_by_flight_number)  # free up memory
+```
+
+Figure \@ref(fig:average-delay-by-distance) shows that the distance flown is not
+a predictor of arrival delays.
+
+### Arrival delay by departure time
+
+***LB*** why is this graph wonky
+
+The departure time of the flight (when it should have departed from the airport of origin) could be
+influential
+
+```{r, average-delay-by-departure-time, fig.cap="Average arrival delay by departure time"}
+flights_by_departure_time <- non_validation %>% group_by(departure_slot) %>%
+  summarize(average_delay = mean(ArrDelay), 
+		departure_slot = first(departure_slot))
+arrival_delay_graph(
+    x = flights_by_departure_time$departure_slot,
+    y = flights_by_departure_time$average_delay,
+    data=flights_by_departure_time) +
+  xlab("Departure Time") +
+  scale_x_continuous(limits=c(0, 2500), breaks=seq(0, 2400, 100))+
+  theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_by_departure_time)  # free up memory
+```
+
+### Arrival delay by arrival time
+
+The arrival time of the flight (when it should have arrived at the destination airport) could be
+influential in predicting arrival delays.  This relationship can be seen in \@ref(fig:average-delay-by-arrival-time)
+
+
+```{r, average-delay-by-arrival-time, fig.cap="Average arrival delay by arrival time"}
+flights_by_arrival_time <- non_validation %>% group_by(arrival_slot) %>%
+  summarize(average_delay = mean(ArrDelay), 
+		arrival_slot = first(arrival_slot))
+arrival_delay_graph(
+    x = flights_by_arrival_time$arrival_slot,
+    y = flights_by_arrival_time$average_delay,
+    data=flights_by_arrival_time) +
+  xlab("Arrival Time") +  
+  scale_x_continuous(limits=c(0, 2500), breaks=seq(0, 2400, 100))+
+  theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
+
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_by_arrival_time)  # free up memory
+```
+
+Figure \@ref(fig:average-delay-by-arrival-time) appears to so an increase in arrival delays between
+approximately 21:00 and 4:00).  This could be important.  However, in analysing arrival times, it is important
+to remember that the author could not determine if the arrival times were given in local time
+at the destination airport (`r destination_airport` in this case) or in GMT (Greenwich Mean Time).  
+
+## Investigating *Late*
+
+This sub-section specifically looks at boolean field *Late* which is TRUE if the flight was late (arrived later than schedule)
+and was FALSE otherwise.  This field did not cater for earlier arrivals.
+Statistics about the *Late* field can be seen in Table \@ref(tab:LateStats)
+
+\begin{center}
+```{r echo=FALSE}
+load(non_validation_rda)
+Measurement <- c("Total Rows", "Late", "Not Late")
+Value <- c(nrow(non_validation), sum(non_validation$Late), sum(!non_validation$Late))
+df <- data.frame(Measurement, Value)
+df %>% knitr::kable(caption="Statistics about late arrivals",
+                         label="LateStats") %>% kableExtra::kable_styling(latex_options="hold_position")
+```
+\end{center}
+
+## Summary
+
+From this exploration, it is clear that the fields indicated in Table \@ref(tab:ImportantColumns) are important
+and could assist in predicting arrival delays and whether or not a flight is late.
+
+\begin{center}
+```{r echo=FALSE}
+Fields <- c("Airport of Origin", "Airline", "Flight Number", "Tail Number")
+df <- data.frame(Fields)
+df %>% knitr::kable(caption="Important columns in dataset",
+                         label="ImportantColumns") %>% kableExtra::kable_styling(latex_options="hold_position")
+```
+\end{center}
 
 \newpage
 # Model Investigations and Results {#model}

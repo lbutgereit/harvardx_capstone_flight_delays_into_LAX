@@ -23,6 +23,16 @@ build_models <- FALSE
 destination_airport <- "LAX"
 
 #
+# functions for time handling
+#
+previous_half_hour <- function(time) {
+  minute <- time %% 100
+  hour <- time - minute
+  minute <- ifelse(minute < 30, 0, 30)
+  hour+minute
+}
+
+#
 # if the gz file has not been downloaded or if it is
 # the wrong size, download it
 #
@@ -104,9 +114,13 @@ if ( (!file.exists(on_time_performance_rda)) ||
  			DOT_ID_Reporting_Airline,
 			Flight_Number_Reporting_Airline,
 			OriginAirportID, 
+			Tail_Number,
+			Distance,
 			DepTime, ArrTime, ArrDelay) %>%
 		filter(complete.cases(.)) %>%		# NB the full stop
-		mutate(Late = ifelse(ArrDelay > 0, 1, 0))
+		mutate(Late = ifelse(ArrDelay > 0, 1, 0),
+		       departure_slot = previous_half_hour(DepTime),
+		       arrival_slot = previous_half_hour(ArrTime))
 	print("filtered out NAs and selected columns")
 	save(on_time_performance, file=on_time_performance_rda)
 	print(paste("Saved", on_time_performance_rda))
