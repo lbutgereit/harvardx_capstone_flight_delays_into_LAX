@@ -397,13 +397,15 @@ if ( (!file.exists(on_time_performance_rda)) ||
         #
         on_time_performance <- csv %>%
                 filter(Dest == destination_airport) %>%
-		select(Year, Month, DayofMonth, DayOfWeek, 
- 			DOT_ID_Reporting_Airline,
-			Flight_Number_Reporting_Airline,
-			OriginAirportID, 
-			Tail_Number,
-			Distance,
-			DepTime, ArrTime, ArrDelay) %>%
+                select(Year, Month, DayofMonth, DayOfWeek,
+                        DOT_ID_Reporting_Airline,
+                        Flight_Number_Reporting_Airline,
+                        OriginAirportID,
+                        Tail_Number,
+                        Distance,
+                        AirTime,
+                        ArrDel15,
+                        DepTime, ArrTime, ArrDelay) %>%
                 filter(complete.cases(.)) %>%           # NB the full stop
 		mutate(Late = ifelse(ArrDelay > 0, 1, 0),
 		       departure_slot = previous_half_hour(DepTime),
@@ -803,8 +805,27 @@ arrival_delay_graph(
 rm(flights_by_flight_number)  # free up memory
 ```
 
-Figure \@ref(fig:average-delay-by-distance) shows that the distance flown is not
-a predictor of arrival delays.
+### Arrival delay by time flying
+
+The duration of a flight may influence whether or not there is a delay in arrival.
+This relationship can be seen in Figure \@ref(fig:average-delay-by-airtime).
+
+```{r, average-delay-by-airtime, fig.cap="Average arrival delay by airtime flown"}
+flights_by_airtime <- non_validation %>% group_by(AirTime) %>%
+  summarize(average_delay = mean(ArrDelay), 
+		AirTime = first(Distance))
+arrival_delay_graph(
+    x = flights_by_airtime$AirTime, 
+    y = flights_by_airtime$average_delay,
+    data=flights_by_airtime) +
+  xlab("Duration (minutes)") 
+
+```
+```{r, eval=TRUE, echo=FALSE}
+rm(flights_by_airtime)  # free up memory
+```
+
+Figure \@ref(fig:average-delay-by-airtime) shows that the time flying is LB
 
 ### Arrival delay by departure time
 
@@ -866,12 +887,12 @@ Statistics about the *Late* field can be seen in Table \@ref(tab:LateStats)
 
 \begin{center}
 ```{r echo=FALSE}
-load(non_validation_rda)
-Measurement <- c("Total Rows", "Late", "Not Late")
-Value <- c(nrow(non_validation), sum(non_validation$Late), sum(!non_validation$Late))
-df <- data.frame(Measurement, Value)
-df %>% knitr::kable(caption="Statistics about late arrivals",
-                         label="LateStats") %>% kableExtra::kable_styling(latex_options="hold_position")
+#load(non_validation_rda)
+#Measurement <- c("Total Rows", "Late", "Not Late")
+#Value <- c(nrow(non_validation), sum(non_validation$Late), sum(!non_validation$Late))
+#df <- data.frame(Measurement, Value)
+#df %>% knitr::kable(caption="Statistics about late arrivals",
+                         #label="LateStats") %>% kableExtra::kable_styling(latex_options="hold_position")
 ```
 \end{center}
 
