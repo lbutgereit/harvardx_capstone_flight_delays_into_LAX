@@ -102,6 +102,7 @@ if ( (!file.exists(on_time_performance_rda)) ||
 		filter(Dest == destination_airport) %>%
 		select(Year, Month, DayofMonth, DayOfWeek, 
  			DOT_ID_Reporting_Airline,
+			Flight_Number_Reporting_Airline,
 			OriginAirportID, 
 			DepTime, ArrTime, ArrDelay) %>%
 		filter(complete.cases(.)) %>%		# NB the full stop

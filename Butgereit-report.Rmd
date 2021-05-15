@@ -1,5 +1,5 @@
 ---
-title: "Harvardx Capstone Flight Delays into LAX"
+title: "Harvardx Capstone - Domestic Flight Delays into LAX"
 author: "Laura Butgereit"
 date: "08/05/2021"
 output: 
@@ -39,7 +39,7 @@ my_theme <- function() {
     # add border 1)
     panel.border = element_rect(colour = "deepskyblue4", fill = NA, linetype = 1),
     # color background 2)
-    panel.background = element_rect(fill = "deepskyblue"),
+    panel.background = element_rect(fill = "aliceblue"),
     # modify grid 3)
     panel.grid.major.x = element_line(colour = "deepskyblue4", linetype = 3, size = 0.5),
     panel.grid.minor.x = element_blank(),
@@ -67,10 +67,11 @@ update_geom_defaults("boxplot", list(fill = "deepskyblue4", alpha = 0.6, outlier
 #
 histogram_graph <- function(data, x, bins=10) {
   p <- ggplot(aes(x), data=data) +
-    scale_y_continuous()+
-    geom_histogram(bins=bins)  +
-    scale_x_log10() +
-    #theme(plot.title = element_text(hjust = 0.5))+
+    #scale_y_continuous()+
+    scale_y_log10() +
+    #geom_histogram(bins=bins)  +
+    geom_histogram(binwidth=30) +
+    #scale_x_log10() +
     ylab("Quantity") +
     my_theme()
   p
@@ -133,8 +134,7 @@ have needed to be done in order to process the large data files.
 
 Section \@ref(download) describes issues which were encountered in downloading the
 required data files.  This section provides various strategies which were
-utilized to handle these issues.  Section \@ref(edxAndValidation) provides
-information on how the training data and validation data was extracted.
+utilized to handle these issues. 
 
 Section \@ref(exploration) of this paper describes the exploration into the dataset.
 This section includes numerical values and some histograms of distributions.
@@ -146,7 +146,6 @@ models to be able to predict the ratings given to a movie.  There were a
 number of different strategies which were investigated.  Each model is
 described along with the RMSE (root mean square error) for that model.
 
-A summary of the various RMSEs for each model is provided in Sub-Section \@ref(modelsummary).  The results of the model on the validation set is described in Sub-Section \@ref(validation).
 
 Conclusions can be found in Section \@ref(conclusions).
 
@@ -252,7 +251,8 @@ First a handful of pseudo-constants were set up
 
 ```{r, echo=TRUE}
 download_timeout <- 600 # seconds == 10 minutes
-on_time_performance_url <- "https://dax-cdn.cdn.appdomain.cloud/dax-airline/1.0.1/airline_2m.tar.gz"
+on_time_performance_url <- 
+"https://dax-cdn.cdn.appdomain.cloud/dax-airline/1.0.1/airline_2m.tar.gz"
 on_time_performance_gz <- "airline_2m.tar.gz"
 on_time_performance_gz_size <- 151681776
 on_time_performance_csv <- "airline_2m.csv"
@@ -282,11 +282,13 @@ if ( (!file.exists(on_time_performance_gz)) ||
         #
         # Download gz file
         #
-        print(paste("file", on_time_performance_gz, "does not exist or is the wrong size", sep=" "))
+        print(paste("file", on_time_performance_gz, 
+		"does not exist or is the wrong size", sep=" "))
         print("Downloading it")
         options(timeout = download_timeout)
         download.file(on_time_performance_url, on_time_performance_gz)
-        print(paste("Downloaded", file.info(on_time_performance_gz)$size, "bytes"))
+        print(paste("Downloaded", file.info(on_time_performance_gz)$size, 
+		"bytes"))
 
         #
         # check to see if the entire file got downloaded
@@ -294,8 +296,10 @@ if ( (!file.exists(on_time_performance_gz)) ||
         if ( file.info(on_time_performance_gz)$size == on_time_performance_gz_size) {
                 print(paste(on_time_performance_gz, "downloaded OK", sep=" "))
         } else {
-                print(paste(on_time_performance_gz, "was not completely downloaded", sep=" "))
-                print(paste("You can download it through your browser by pointing your browser to"))
+                print(paste(on_time_performance_gz, 
+			"was not completely downloaded", sep=" "))
+                print(paste("You can download it through your browser ",
+			"by pointing your browser to"), sep="")
                 print(on_time_performance-url)
                 stop()
         }
@@ -329,8 +333,10 @@ if ( (!file.exists(on_time_performance_csv)) |
         if ( file.info(on_time_performance_csv)$size == on_time_performance_csv_size) {
                 print(paste(on_time_performance_csv, "untared OK", sep=" "))
         } else {
-                print(paste(on_time_performance_csv, "was not untarred correctly", sep=" "))
-                print(paste("You can try decrompressing and untaring it your self and rerunning this script"))
+                print(paste(on_time_performance_csv, 
+			"was not untarred correctly", sep=" "))
+                print(paste("You can try decrompressing and untaring ",
+			"it your self and rerunning this script"), sep="")
                 stop()
         }
 }
@@ -338,11 +344,247 @@ if ( (!file.exists(on_time_performance_csv)) |
 ```
 
 \newpage
-# Extracting and saving the dataset
+# Extracting and Creating datasets
+
+The original downloaded file contained numerous pieces of information.
+
+```{r, eval=TRUE, echo=TRUE}
+csv <- read.csv(on_time_performance_csv, nrows=2)
+numCols <- ncol(csv)
+headings <- names(csv)
+```
+There are `r numCols` columns in the original data file.
+
+
+```{r, eval=FALSE, echo=FALSE}
+df %>% knitr::kable(caption="Headings in Original Dataset",
+                         label="results") %>% kableExtra::kable_styling(latex_options="hold_position")
+```
+Many of these columns were empty and many were not relevant to the issue at hand.  The author
+followed an interative approach into determining which columns were important.  An additional
+boolean column was added which indicated whether or not the flight was late in arriving.
+
+```{r, eval=TRUE, echo=TRUE}
+#
+# if the on_time_performance_rda file does not exist,
+# or if the csv file is younger than it, then rebuild it
+#
+if ( (!file.exists(on_time_performance_rda)) ||
+     (file.info(on_time_performance_csv)$ctime > file.info(on_time_performance_rda)$ctime) ) {
+
+        #
+        # read in the csv
+        #
+        print("Reading data file")
+        csv <- read.csv(on_time_performance_csv)
+        print("read csv")
+
+        #
+        # filter out only flights landing at destination_airport
+        # select the columns which might interest us (human choice)
+        # only keep complete cases
+        # add a flag for Late
+        #
+        on_time_performance <- csv %>%
+                filter(Dest == destination_airport) %>%
+                select(Year, Month, DayofMonth, DayOfWeek,
+                        DOT_ID_Reporting_Airline,
+                        Flight_Number_Reporting_Airline,
+                        OriginAirportID,
+                        DepTime, ArrTime, ArrDelay) %>%
+                filter(complete.cases(.)) %>%           # NB the full stop
+                mutate(Late = ifelse(ArrDelay > 0, 1, 0))
+
+        print("filtered out NAs and selected columns")
+        save(on_time_performance, file=on_time_performance_rda)
+        print(paste("Saved", on_time_performance_rda))
+}
+```
+
+From this newly created dataset, four subsets were created.  The first subset was to extract a validation
+set which would be put aside and not accessed until the final model was going to be evaluation.  The
+second subset was the remaining elements which were not in the validation set.  This second subset (the
+non validation dataset), was subdivided into a training set and a testing set.  All four of these
+subsets were stored on intermediate R objects.
+
+```{r, eval=TRUE, echo=TRUE}
+#
+# if validation, train, and test do not exist or if
+# one of them is younger than the big rda
+#
+# make sure that the Late flag is equitably distributed
+#
+if ( !file.exists(test_rda) || !file.exists(train_rda) || !file.exists(validation_rda) ||
+     !file.exists(non_validation_rda) ||
+     (file.info(on_time_performance_rda)$ctime > file.info(validation_rda)) ||
+     (file.info(on_time_performance_rda)$ctime > file.info(non_validation_rda)) ||
+     (file.info(on_time_performance_rda)$ctime > file.info(train_rda)) ||
+     (file.info(on_time_performance_rda)$ctime > file.info(test_rda))) {
+
+        set.seed(1, sample.kind="Rounding")
+        load(on_time_performance_rda)
+
+        #
+        # make validation and non-validation datasets
+        #
+        validation_index <- createDataPartition(y=on_time_performance$Late, times=1, p=0.1, list=FALSE)
+        validation <- on_time_performance[validation_index,]
+        non_validation <- on_time_performance[-validation_index,]
+
+
+        #
+        # divide the non-validation dataset into test and train
+        #
+        test_index <- createDataPartition(y=non_validation$Late, times=1, p=0.1, list=FALSE)
+        test <- non_validation[test_index,]
+        train <- non_validation[-test_index,]
+
+        #
+        # save on intermediate data objects
+        #
+        save(test, file=test_rda)
+        save(train, file=train_rda)
+        save(validation, file=validation_rda)
+        save(non_validation, file=non_validation_rda)
+
+        #
+        # free up memory
+        #
+        rm(test, train, validation, non_validation, on_time_performance)
+}
+
+```
+
+```{r eval=TRUE, echo=FALSE}
+load(non_validation_rda)
+nrow_non_validation <- nrow(non_validation)
+rm(non_validation)
+load(validation_rda)
+nrow_validation <- nrow(validation)
+rm(validation)
+load(train_rda)
+nrow_train <- nrow(train)
+rm(train)
+load(test_rda)
+nrow_test <- nrow(test)
+rm(test)
+datasets <- c("Non-validation", "Validation", "Train", "Test")
+numRows <- c(nrow_non_validation, nrow_validation, nrow_train, nrow_test)
+df <- data.frame(datasets, numRows)
+```
+
+The number of rows in each dataset can be seen in Table \@ref(tab:sizes)
+
+\begin{center}
+```{r echo=FALSE}
+df %>% knitr::kable(caption="Sizes of various datasets",
+                         label="sizes") %>% kableExtra::kable_styling(latex_options="hold_position")
+```
+\end{center}
 
 
 \newpage
 # Exploratory Analysis {#exploration}
+
+All values and graphs in this exploratory section refer only to the
+non_validation set.  This includes the training set and test set, but
+specifically excludes the validation set which was extracted and saved
+for future use.
+
+## Arrival delays
+
+Although the term is called *ArrDelay*, the value can be positive (indicating
+an actual delay) or negative (indicating that the flight arrived early).
+Statistics about the *ArrDelay* field can be seen in Table Table
+\@ref(tab:ArrDelayStats)
+
+\begin{center}
+```{r echo=FALSE}
+load(non_validation_rda)
+Measurement <- c("Minimum", "Maximum", "Mean", "Std Dev")
+Value <- c(min(non_validation$ArrDelay), max(non_validation$ArrDelay),
+           mean(non_validation$ArrDelay), sd(non_validation$ArrDelay))
+df <- data.frame(Measurement, Value)
+df %>% knitr::kable(caption="Statistics about arrival delay times",
+                         label="ArrDelayStats") %>% kableExtra::kable_styling(latex_options="hold_position")
+```
+\end{center}
+
+The distribution of arrival delay values can be seen in 
+Figure \@ref(fig:distribution-arrival-delays).
+
+```{r, distribution-arrival-delays, fig.cap="Distribution of arrival delays"}
+flights_per_delays <- non_validation %>% group_by(ArrDelay) %>%
+  summarize(number_of_flights = n(), ArrDelay = first(ArrDelay))
+options(scipen=100000)
+histogram_graph(x = flights_per_delays$number_of_flights,
+                data=flights_per_delays, bins=30) +
+  xlab("Arrival delay (minutes)") +
+  xlim(min(flights_per_delays$ArrDelay), max(flights_per_delays$ArrDelay))
+```
+## Years
+
+The data spanned a number of years from `r min(non_validation$Year)` to 
+`r max(non_validation$Year)`.  A distribution of the flights through the 
+years can be seen in Figure \@ref(fig:distribution-flights-by-year)
+
+```{r, distribution-flights-by-year, fig.cap="Distribution of flights by year"}
+flights_per_year <- non_validation %>% group_by(Year) %>%
+  summarize(number_of_flights = n(), Year = first(Year))
+bar_graph(x = flights_per_year$Year, y = flights_per_year$number_of_flights,
+                data=flights_per_year) +
+  xlab("Year") +
+  ylab("Number of arrivals")
+```
+
+# Average arrival delays by year
+
+The average arrival delay by year can be seen in Figure \@ref(fig:average-delay-by-year)
+
+```{r, average-delay-by-year, fig.cap="Average arrival delay by year"}
+flights_per_year <- non_validation %>% group_by(Year) %>%
+  summarize(average_delay = mean(ArrDelay), Year = first(Year))
+bar_graph(x = flights_per_year$Year, y = flights_per_year$average_delay,
+                data=flights_per_year) +
+  xlab("Year") +
+  ylab("Average delay (minutes)")
+```
+
+## Average delay by month
+
+The month of the year (indicating the season and possible weather effects) could
+influence arrival delays.  
+
+
+```{r, average-delay-by-month, fig.cap="Average arrival delay by month"}
+flights_per_month <- non_validation %>% group_by(Month) %>%
+  summarize(average_delay = mean(ArrDelay), Month = first(Month))
+bar_graph(x = flights_per_month$Month, y = flights_per_month$average_delay,
+                data=flights_per_month) +
+  xlab("Month") +
+  ylab("Average delay (minutes)") +
+  scale_x_continuous(limits=c(1, 12), breaks=1:12,
+            labels=c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+```
+
+## Arrival delay by day of the week
+
+The day of the week could possibly influence arrival times with weekend traffic
+geting different than weekday traffic.
+
+```{r, average-delay-by-day, fig.cap="Average arrival delay by day of the week"}
+flights_per_day <- non_validation %>% group_by(DayOfWeek) %>%
+  summarize(average_delay = mean(ArrDelay), DayOfWeek = first(DayOfWeek))
+bar_graph(x = flights_per_day$DayOfWeek, y = flights_per_day$average_delay,
+                data=flights_per_day) +
+  xlab("Day of the Week") +
+  ylab("Average delay (minutes)") +
+  scale_x_continuous(limits=c(1, 7), breaks=1:7,
+                     labels=c("Sun", "Mon", "Tue", "Wed", "Thu",
+                              "Fri", "Sat"))
+
+```
 
 \newpage
 # Model Investigations and Results {#model}
