@@ -19,8 +19,11 @@ validation_rda <- "validation.rda"
 non_validation_rda <- "non_validation.rda"
 test_rda <- "test.rda"
 train_rda <- "train.rda"
-build_models <- TRUE
+investigate <- FALSE
+build_late_models_iteration_1 <- TRUE
+build_late_models_iteration_2 <- FALSE
 destination_airport <- "LAX"
+percent <- 0.1        # validation set and test set percentage
 
 #
 # functions for time handling
@@ -124,12 +127,14 @@ if ( (!file.exists(on_time_performance_rda)) ||
 			ArrDel15,
 			AirTime,
 			ArrDel15,
-			DepTime, ArrTime, ArrDelay) %>%
+			DepTime, ArrTime, 
+			DepDelay, ArrDelay) %>%
 		filter(complete.cases(.)) %>%		# NB the full stop
-		mutate(late = factor(ArrDel15),
+		mutate(late = factor(ifelse(ArrDelay > 0, 1, 0)),
+		       arrival_delay = factor(ArrDelay),
 		       departure_slot = previous_half_hour(DepTime),
 		       arrival_slot = previous_half_hour(ArrTime),
-		       arrival_slot_number = as.factor(arrival_slot),
+		       arrival_slot_number = factor(arrival_slot),
 		       airline = factor(DOT_ID_Reporting_Airline),
 		       flight_number = factor(Flight_Number_Reporting_Airline),
 		       tail_number = factor(Tail_Number),
@@ -160,7 +165,7 @@ if ( !file.exists(test_rda) || !file.exists(train_rda) || !file.exists(validatio
 	#
 	# make validation and non-validation datasets
 	#
-	validation_index <- createDataPartition(y=on_time_performance$late, times=1, p=0.1, list=FALSE)
+	validation_index <- createDataPartition(y=on_time_performance$late, times=1, p=percent, list=FALSE)
 	validation <- on_time_performance[validation_index,]
 	non_validation <- on_time_performance[-validation_index,]
 
@@ -168,21 +173,21 @@ if ( !file.exists(test_rda) || !file.exists(train_rda) || !file.exists(validatio
 	#
 	# divide the non-validation dataset into test and train
 	#
-	test_index <- createDataPartition(y=non_validation$late, times=1, p=0.1, list=FALSE)
+	test_index <- createDataPartition(y=non_validation$late, times=1, p=percent, list=FALSE)
 	test <- non_validation[test_index,]
 	train <- non_validation[-test_index,]
 
 	#
 	# print out stats on these subsets
 	#
-	print(paste("non-validation has", nrow(non_validation), "rows with", sum(non_validation$late), 
-		"late", sum(non_validation$late == 1)*100/nrow(non_validation), "%", sep=" "))
-	print(paste("validation has", nrow(validation), "rows with", sum(validation$late), 
-		"late", sum(validation$late == 1) * 100 / nrow(validation), "%", sep=" "))
-	print(paste("train has", nrow(train == 1), "rows with", sum(train$late), 
-		"late", sum(train$late == 1) * 100 / nrow(train), "%", sep=" "))
-	print(paste("test has", nrow(test), "rows with", sum(test$late == 1), 
-		"late", sum(test$late) * 100 / nrow(test), "%", sep=" "))
+	#print(paste("non-validation has", nrow(non_validation), "rows with", sum(non_validation$late), 
+		#"late", sum(non_validation$late)*100/nrow(non_validation), "%", sep=" "))
+	#print(paste("validation has", nrow(validation), "rows with", sum(validation$late), 
+		#"late", sum(validation$late) * 100 / nrow(validation), "%", sep=" "))
+	#print(paste("train has", nrow(train), "rows with", sum(train$late), 
+		#"late", sum(train$late) * 100 / nrow(train), "%", sep=" "))
+	#print(paste("test has", nrow(test), "rows with", sum(test$late == 1), 
+		#"late", sum(test$late) * 100 / nrow(test), "%", sep=" "))
 
 	#
 	# save on intermediate data objects
@@ -200,9 +205,9 @@ if ( !file.exists(test_rda) || !file.exists(train_rda) || !file.exists(validatio
 
 
 #
-# now train a model
+# now investigate averages et
 #
-if ( build_models ) {
+if ( investigate ) {
 	print("in memory right now")
 	ls()
 
@@ -222,7 +227,7 @@ if ( build_models ) {
 	print(paste("RMSE", RMSE(test$ArrDelay, overall_average)))
 
 	#
-	# use the airline
+	# use only the airline
 	#
 	print("Airline effect (average)")
 	airline_averages <- train %>% group_by(DOT_ID_Reporting_Airline) %>%
@@ -233,7 +238,7 @@ if ( build_models ) {
 	print(paste("RMSE", RMSE(model$ArrDelay, model$airline_average)))
 
 	#
-	# use the tail number
+	# use only the tail number (physical airplane)
 	#
 	print("Tail number effect (average)")
 	tail_number_averages <- train %>% group_by(Tail_Number) %>%
@@ -244,7 +249,7 @@ if ( build_models ) {
 	print(paste("RMSE", RMSE(model$ArrDelay, model$tail_number_average)))
 
 	#
-	# use the origin airport
+	# use only the origin airport
 	#
 	print("Origin airport effect (average)")
 	origin_airport_averages <- train %>% group_by(OriginAirportID) %>%
@@ -255,7 +260,7 @@ if ( build_models ) {
 	print(paste("RMSE", RMSE(model$ArrDelay, model$origin_airport_average)))
 
 	#
-	# use the flight number
+	# use only the flight number (route)
 	#
 	print("Flight number effect (average)")
 	flight_number_averages <- train %>% group_by(Flight_Number_Reporting_Airline) %>%
@@ -266,7 +271,7 @@ if ( build_models ) {
 	print(paste("RMSE", RMSE(model$ArrDelay, model$flight_number_average)))
 
 	#
-	# use the arrival_slot_number
+	# use only the arrival_slot_number
 	#
 	print("Arrival slot number effect (average)")
 	arrival_slot_averages <- train %>% group_by(as.numeric(arrival_slot_number)) %>%
@@ -275,6 +280,28 @@ if ( build_models ) {
 	model <- test %>% inner_join(arrival_slot_averages,
 		by = "Flight_Number_Reporting_Airline")
 	print(paste("RMSE", RMSE(model$ArrDelay, model$arrival_slot_average)))
+
+	#
+	# use only the arrival time
+	#
+	print("Arrival time (average)")
+	arrival_time_averages <- train %>% group_by(ArrTime) %>%
+		summarize(arrival_average = mean(ArrDelay), 
+			  Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
+	model <- test %>% inner_join(arrival_time_averages,
+		by = "Flight_Number_Reporting_Airline")
+	print(paste("RMSE", RMSE(model$ArrDelay, model$arrival_average)))
+
+	#
+	# use only the departure delay
+	#
+	print("Departure delay effect (average)")
+	departure_delay_averages <- train %>% group_by(as.numeric(DepDelay)) %>%
+		summarize(departure_delay_average = mean(ArrDelay), 
+			  Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
+	model <- test %>% inner_join(departure_delay_averages,
+		by = "Flight_Number_Reporting_Airline")
+	print(paste("RMSE", RMSE(model$ArrDelay, model$departure_delay_average)))
 
 	#
 	# average of airport effect and airline effect
@@ -306,18 +333,32 @@ if ( build_models ) {
 		mutate( prediction = (origin_airport_average + airline_average + flight_number_average + flight_number_average) / 4)
 	print(paste("RMSE", RMSE(model$ArrDelay, model$prediction)))
 
-	models <- c("rpart", "glm", "mlp")
-	tuning_grids <- c(
-				data.frame(cp = seq(0, 0.03, 0.01))
-			)
+	#
+	# average of airport effect and airline effect flight number, tail number, arrival time
+	#
+	print("Average airport effect, airline effect, flight number effect, tail number effect, arrival time")
+	model <- test %>% inner_join(origin_airport_averages, by = "Flight_Number_Reporting_Airline") %>%
+		inner_join(airline_averages, by = "Flight_Number_Reporting_Airline") %>%
+		inner_join(flight_number_averages, by = "Flight_Number_Reporting_Airline") %>%
+		inner_join(tail_number_averages, by = "Flight_Number_Reporting_Airline") %>%
+		inner_join(arrival_time_averages, by = "Flight_Number_Reporting_Airline") %>%
+		mutate( prediction = (origin_airport_average + airline_average + flight_number_average + flight_number_average + arrival_average) / 5)
+	print(paste("RMSE", RMSE(model$ArrDelay, model$prediction)))
 
+
+}
+
+if ( build_late_models_iteration_1 ) {
+	load(train_rda)
+	load(test_rda)
+	models <- c("rpart", "glm", "mlp", "knn")
 	fits <- lapply(models, function(model) {
 		print(model)
 		print(Sys.time())
 		fit <- train(
-  			late ~ airline + origin_airport,
+			late ~ airline + origin_airport + ArrTime + DepDelay,        
 			method=model, data=train,
-			tuneLength = 3)
+			tuneLength = 2)
 		print(Sys.time())
 		print(fit)
 		save(fit, file=paste(model, ".rda", sep=""))
@@ -328,3 +369,4 @@ if ( build_models ) {
 		print(cm)
 	})
 }
+
