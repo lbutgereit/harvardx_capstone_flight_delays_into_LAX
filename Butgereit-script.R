@@ -183,7 +183,13 @@ if ( !file.exists(test_rda) || !file.exists(train_rda) || !file.exists(validatio
      (file.info(on_time_performance_rda)$ctime > file.info(train_rda)$ctime) ||
      (file.info(on_time_performance_rda)$ctime > file.info(test_rda)$ctime)) {
 
+	#
+	# supress the warning about sample.kind
+	#
+	warnLevel <- getOption("warn")
+	options(warn = -1)
 	set.seed(1, sample.kind="Rounding")
+	options(warn = warnLevel)
 	load(on_time_performance_rda)
 
 	#
@@ -229,170 +235,58 @@ if ( !file.exists(test_rda) || !file.exists(train_rda) || !file.exists(validatio
 
 
 #
-# now investigate averages et
-#
-if ( investigate ) {
-	print("in memory right now")
-	ls()
-
-	#
-	# load the train and test set
-	#
-	load(train_rda)
-	load(test_rda)
-	print(paste("Training set has", nrow(train), "rows"))
-	print(paste("Test set has", nrow(test), "rows"))
-
-	#
-	# naive model
-	#
-	overall_average = mean(train$ArrDelay)
-	print(paste("Overall Average", overall_average))
-	print(paste("RMSE", RMSE(test$ArrDelay, overall_average)))
-
-	#
-	# use only the airline
-	#
-	print("Airline effect (average)")
-	airline_averages <- train %>% group_by(DOT_ID_Reporting_Airline) %>%
-		summarize(airline_average = mean(ArrDelay), 
-			  Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
-	model <- test %>% inner_join(airline_averages,
-		by = "Flight_Number_Reporting_Airline")
-	print(paste("RMSE", RMSE(model$ArrDelay, model$airline_average)))
-
-	#
-	# use only the tail number (physical airplane)
-	#
-	print("Tail number effect (average)")
-	tail_number_averages <- train %>% group_by(Tail_Number) %>%
-		summarize(tail_number_average = mean(ArrDelay), 
-			  Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
-	model <- test %>% inner_join(tail_number_averages,
-		by = "Flight_Number_Reporting_Airline")
-	print(paste("RMSE", RMSE(model$ArrDelay, model$tail_number_average)))
-
-	#
-	# use only the origin airport
-	#
-	print("Origin airport effect (average)")
-	origin_airport_averages <- train %>% group_by(OriginAirportID) %>%
-		summarize(origin_airport_average = mean(ArrDelay), 
-			  Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
-	model <- test %>% inner_join(origin_airport_averages,
-		by = "Flight_Number_Reporting_Airline")
-	print(paste("RMSE", RMSE(model$ArrDelay, model$origin_airport_average)))
-
-	#
-	# use only the flight number (route)
-	#
-	print("Flight number effect (average)")
-	flight_number_averages <- train %>% group_by(Flight_Number_Reporting_Airline) %>%
-		summarize(flight_number_average = mean(ArrDelay), 
-			  Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
-	model <- test %>% inner_join(flight_number_averages,
-		by = "Flight_Number_Reporting_Airline")
-	print(paste("RMSE", RMSE(model$ArrDelay, model$flight_number_average)))
-
-	#
-	# use only the arrival_slot_number
-	#
-	print("Arrival slot number effect (average)")
-	arrival_slot_averages <- train %>% group_by(as.numeric(arrival_slot_number)) %>%
-		summarize(arrival_slot_average = mean(ArrDelay), 
-			  Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
-	model <- test %>% inner_join(arrival_slot_averages,
-		by = "Flight_Number_Reporting_Airline")
-	print(paste("RMSE", RMSE(model$ArrDelay, model$arrival_slot_average)))
-
-	#
-	# use only the arrival time
-	#
-	print("Arrival time (average)")
-	arrival_time_averages <- train %>% group_by(ArrTime) %>%
-		summarize(arrival_average = mean(ArrDelay), 
-			  Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
-	model <- test %>% inner_join(arrival_time_averages,
-		by = "Flight_Number_Reporting_Airline")
-	print(paste("RMSE", RMSE(model$ArrDelay, model$arrival_average)))
-
-	#
-	# use only the departure delay
-	#
-	print("Departure delay effect (average)")
-	departure_delay_averages <- train %>% group_by(as.numeric(DepDelay)) %>%
-		summarize(departure_delay_average = mean(ArrDelay), 
-			  Flight_Number_Reporting_Airline = first(Flight_Number_Reporting_Airline))
-	model <- test %>% inner_join(departure_delay_averages,
-		by = "Flight_Number_Reporting_Airline")
-	print(paste("RMSE", RMSE(model$ArrDelay, model$departure_delay_average)))
-
-	#
-	# average of airport effect and airline effect
-	#
-	print("Average airport effect and airline effect")
-	model <- test %>% inner_join(origin_airport_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(airline_averages, by = "Flight_Number_Reporting_Airline") %>%
-		mutate( prediction = (origin_airport_average + airline_average) / 2)
-	print(paste("RMSE", RMSE(model$ArrDelay, model$prediction)))
-
-	#
-	# average of airport effect and airline effect and flight number
-	#
-	print("Average airport effect, airline effect and flight number effect")
-	model <- test %>% inner_join(origin_airport_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(airline_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(flight_number_averages, by = "Flight_Number_Reporting_Airline") %>%
-		mutate( prediction = (origin_airport_average + airline_average + flight_number_average) / 3)
-	print(paste("RMSE", RMSE(model$ArrDelay, model$prediction)))
-
-	#
-	# average of airport effect and airline effect flight number, tail number
-	#
-	print("Average airport effect, airline effect, flight number effect, tail number effect")
-	model <- test %>% inner_join(origin_airport_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(airline_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(flight_number_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(tail_number_averages, by = "Flight_Number_Reporting_Airline") %>%
-		mutate( prediction = (origin_airport_average + airline_average + flight_number_average + flight_number_average) / 4)
-	print(paste("RMSE", RMSE(model$ArrDelay, model$prediction)))
-
-	#
-	# average of airport effect and airline effect flight number, tail number, arrival time
-	#
-	print("Average airport effect, airline effect, flight number effect, tail number effect, arrival time")
-	model <- test %>% inner_join(origin_airport_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(airline_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(flight_number_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(tail_number_averages, by = "Flight_Number_Reporting_Airline") %>%
-		inner_join(arrival_time_averages, by = "Flight_Number_Reporting_Airline") %>%
-		mutate( prediction = (origin_airport_average + airline_average + flight_number_average + flight_number_average + arrival_average) / 5)
-	print(paste("RMSE", RMSE(model$ArrDelay, model$prediction)))
-
-
+# determine if we must rebuild the model for each iteration
+# and associated confusion matrix
+must_rebuild <- function(model_rda_filename, cm_rda_filename ) {
+	(!file.exists(model_rda_filename)) || 
+	(!file.exists(cm_rda_filename)) ||
+	(file.info(model_rda_filename)$ctime < file.info(train_rda)$ctime) ||
+	(file.info(cm_rda_filename)$ctime < file.info(train_rda)$ctime)
 }
 
 if ( build_late_models_iteration_1 ) {
 	load(train_rda)
 	load(test_rda)
 	models <- c("rpart", "glm", "mlp")		# rf and knn never returned
-	fits <- lapply(models, function(model) {
-		print(model)
-		print(Sys.time())
-		fit <- train(
-			late ~ airline + origin_airport + ArrTime + DepDelay,        
-			method=model, data=train,
-			tuneLength = 2)
-		print(Sys.time())
-		print(fit)
-		save(fit, file=paste(model, "_1.rda", sep=""))
-		predictions <- predict(fit, test)
-		print(paste("length predictions", length(predictions)))
-		print(paste("length test$late", length(test$late)))
-		cm <- confusionMatrix(data = predictions, reference = test$late)
-		save(cm, file=paste(model, "_1_cm.rda", sep=""))
-		print(cm)
-	})
+	messages <- c(
+		"rpart took just over 2 minutes to build in author's notebook",
+		"glm took just over 5 minutes to build on author's notebook",
+		"mlp took nearly 14 minutes to build on author's notebook")
+	for(i in 1:length(models) ) {
+		model <- models[i]
+		model_rda_filename <- paste(model, "_1.rda", sep="")
+		cm_rda_filename <- paste(model, "_1_cm.rda", sep="")
+		time_txt_filename <- paste(model, "_1.txt", sep="")
+		if ( must_rebuild(model_rda_filename, cm_rda_filename ) ) { 
+			#
+			# supress the warning about sample.kind
+			#
+			warnLevel <- getOption("warn")
+			options(warn = -1)
+			set.seed(1, sample.kind="Rounding")
+			options(warn = warnLevel)
+			print(model)
+			print(messages[i])
+			print("Please be patient")
+			begTime <- Sys.time()
+			print(begTime)
+			fit <- train(
+				late ~ airline + origin_airport + ArrTime + DepDelay,        
+				method=model, data=train,
+				tuneLength = 2)
+			endTime <- Sys.time()
+			print(endTime)
+			cat(difftime(endTime, begTime, units="mins"), file = time_txt_filename, sep="\n")
+			print(fit)
+			save(fit, file=model_rda_filename)
+			predictions <- predict(fit, test)
+			print(paste("length predictions", length(predictions)))
+			print(paste("length test$late", length(test$late)))
+			cm <- confusionMatrix(data = predictions, reference = test$late)
+			save(cm, file=cm_rda_filename)
+			print(cm)
+		}
+	}
 	rm(test, train)
 }
 
@@ -403,37 +297,55 @@ if ( build_late_models_iteration_2 ) {
 	# models and tuning_parameters must be in same order.
 	# NAs for models with no tuning parameters
 	#
-	models <- c("rpart", "glm", "mlp")
+	models <- c("rpart", "mlp")
 	tuning_parameters <- c(
 			data.frame(cp = seq(.0005, .00100, 0.0001)), 	# rpart
-			NA,		 				# glm - no tuning parameters
-			data.frame(size = seq(3, 23, 10)))    		# mlp
+			data.frame(size = seq(1, 5, 2)))    		# mlp
+	messages <- c("rpart took just under 2 minutes to build on the author's notebook",
+		      "mlp took up to 25 minutes to build on the author's notebook")
 	for(i in 1:length(models) ) {
 		model <- models[i]
-		print(model)
-		print(Sys.time())
-		fit <- NA			# scoping
-		if ( is.na(tuning_parameters[i]  ) ) {
-			print(paste("model=", model, " no tuning parameters", sep=" "))
-			fit <- train(
-				late ~ airline + origin_airport + ArrTime + DepDelay,        
-				method=model, data=train)
-		} else {
-			print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
-			fit <- train(
-				late ~ airline + origin_airport + ArrTime + DepDelay,        
-				method=model, data=train,
-				tuneGrid = expand.grid(tuning_parameters[i]))
+		model_rda_filename <- paste(model, "_2.rda", sep="")
+		cm_rda_filename <- paste(model, "_2_cm.rda", sep="")
+		time_txt_filename <- paste(model, "_2.txt", sep="")
+		if ( must_rebuild(model_rda_filename, cm_rda_filename ) ) {
+			#
+			# supress the warning about sample.kind
+			#
+			warnLevel <- getOption("warn")
+			options(warn = -1)
+			set.seed(1, sample.kind="Rounding")
+			options(warn = warnLevel)
+			print(model)
+			print(messages[i])
+			print("Please be patient")
+			begTime <- Sys.time()
+			print(begTime)
+			fit <- NA			# scoping
+			if ( is.na(tuning_parameters[i]  ) ) {
+				print(paste("model=", model, " no tuning parameters", sep=" "))
+				fit <- train(
+					late ~ airline + origin_airport + ArrTime + DepDelay,        
+					method=model, data=train)
+			} else {
+				print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
+				fit <- train(
+					late ~ airline + origin_airport + ArrTime + DepDelay,        
+					method=model, data=train,
+					tuneGrid = expand.grid(tuning_parameters[i]))
+			}
+			endTime <- Sys.time()
+			print(endTime)
+			cat(difftime(endTime, begTime, units="mins"), file = time_txt_filename, sep="\n")
+			print(fit)
+			save(fit, file=model_rda_filename)
+			predictions <- predict(fit, test)
+			print(paste("length predictions", length(predictions)))
+			print(paste("length test$late", length(test$late)))
+			cm <- confusionMatrix(data = predictions, reference = test$late)
+			save(cm, file=cm_rda_filename)
+			print(cm)
 		}
-		print(Sys.time())
-		print(fit)
-		save(fit, file=paste(model, "_2.rda", sep=""))
-		predictions <- predict(fit, test)
-		print(paste("length predictions", length(predictions)))
-		print(paste("length test$late", length(test$late)))
-		cm <- confusionMatrix(data = predictions, reference = test$late)
-		save(cm, file=paste(model, "_2_cm.rda", sep=""))
-		print(cm)
 	}
 	rm(test, train)
 }
@@ -445,36 +357,53 @@ if ( build_late_models_iteration_3 ) {
 	# models and tuning_parameters must be in same order.
 	# NAs for models with no tuning parameters
 	#
-	models <- c("rpart", "glm")
+	models <- c("rpart")
 	tuning_parameters <- c(
-			data.frame(cp = seq(.0001, .00200, 0.0001)), 	# rpart
-			NA)		 				# glm - no tuning parameters
+			data.frame(cp = seq(.0001, .00200, 0.0001))) 	# rpart
+	messages <- c("The rpart model took two minutes to build on the author's notebook")
 	for(i in 1:length(models) ) {
 		model <- models[i]
-		print(model)
-		print(Sys.time())
-		fit <- NA			# scoping
-		if ( is.na(tuning_parameters[i]  ) ) {
-			print(paste("model=", model, " no tuning parameters", sep=" "))
-			fit <- train(
-				late ~ airline + origin_airport + ArrTime + DepDelay,        
-				method=model, data=train)
-		} else {
-			print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
-			fit <- train(
-				late ~ airline + origin_airport + ArrTime + DepDelay,        
-				method=model, data=train,
-				tuneGrid = expand.grid(tuning_parameters[i]))
+		model_rda_filename <- paste(model, "_3.rda", sep="")
+		cm_rda_filename <- paste(model, "_3_cm.rda", sep="")
+		time_txt_filename <- paste(model, "_3.txt", sep="")
+		if ( must_rebuild(model_rda_filename, cm_rda_filename ) ) {
+			#
+			# supress the warning about sample.kind
+			#
+			warnLevel <- getOption("warn")
+			options(warn = -1)
+			set.seed(1, sample.kind="Rounding")
+			options(warn = warnLevel)
+			print(model)
+			print(messages[i])
+			print("Please be patient")
+			begTime <- Sys.time()
+			print(begTime)
+			fit <- NA			# scoping
+			if ( is.na(tuning_parameters[i]  ) ) {
+				print(paste("model=", model, " no tuning parameters", sep=" "))
+				fit <- train(
+					late ~ airline + origin_airport + ArrTime + DepDelay,        
+					method=model, data=train)
+			} else {
+				print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
+				fit <- train(
+					late ~ airline + origin_airport + ArrTime + DepDelay,        
+					method=model, data=train,
+					tuneGrid = expand.grid(tuning_parameters[i]))
+			}
+			endTime <- Sys.time()
+			print(endTime)
+			cat(difftime(endTime, begTime, units="mins"), file = time_txt_filename, sep="\n")
+			print(fit)
+			save(fit, file=model_rda_filename)
+			predictions <- predict(fit, test)
+			print(paste("length predictions", length(predictions)))
+			print(paste("length test$late", length(test$late)))
+			cm <- confusionMatrix(data = predictions, reference = test$late)
+			save(cm, file=cm_rda_filename)
+			print(cm)
 		}
-		print(Sys.time())
-		print(fit)
-		save(fit, file=paste(model, "_3.rda", sep=""))
-		predictions <- predict(fit, test)
-		print(paste("length predictions", length(predictions)))
-		print(paste("length test$late", length(test$late)))
-		cm <- confusionMatrix(data = predictions, reference = test$late)
-		save(cm, file=paste(model, "_3_cm.rda", sep=""))
-		print(cm)
 	}
 	rm(test, train)
 }
@@ -487,18 +416,40 @@ if ( build_late_models_iteration_4 ) {
 	#
 	load(non_validation_rda)
 	load(validation_rda)
-	print(Sys.time())
-	fit <- train(
-		late ~ airline + origin_airport + ArrTime + DepDelay,        
-		method="rpart", data=non_validation,
-		tuneGrid = data.frame(cp = 5e-04))
-	print(Sys.time())
-	print(fit)
-	save(fit, file="rpart.rda")
-	predictions <- predict(fit, validation)
-	print(paste("length predictions", length(predictions)))
-	print(paste("length validation$late", length(validation$late)))
-	cm <- confusionMatrix(data = predictions, reference = validation$late)
-	save(cm, file=paste("rpart", "_4_cm.rda", sep=""))
-	print(cm)
+	#
+	# need to get the best complexity value
+	#
+	load("rpart_3.rda")
+	rpart_best_cp <- fit$bestTune
+	model_rda_filename <- paste(model, "_4.rda", sep="")
+	cm_rda_filename <- paste(model, "_4_cm.rda", sep="")
+	time_txt_filename <- paste(model, "_4.txt", sep="")
+	if ( must_rebuild(model_rda_filename, cm_rda_filename ) ) {
+		#
+		# supress the warning about sample.kind
+		#
+		warnLevel <- getOption("warn")
+		options(warn = -1)
+		set.seed(1, sample.kind="Rounding")
+		options(warn = warnLevel)
+		print("The final rpart model took two minutes to build on the author's notebook")
+		print("Please be patient")
+		begTime <- Sys.time()
+		print(begTime)
+ 		fit <- train(
+			late ~ airline + origin_airport + ArrTime + DepDelay,        
+			method="rpart", data=non_validation,
+			tuneGrid = data.frame(cp = rpart_best_cp))
+		endTime <- Sys.time()
+		print(endTime)
+		cat(difftime(endTime, begTime, units="mins"), file = time_txt_filename, sep="\n")
+		print(fit)
+		save(fit, file=model_rda_filename)
+		predictions <- predict(fit, validation)
+		print(paste("length predictions", length(predictions)))
+		print(paste("length validation$late", length(validation$late)))
+		cm <- confusionMatrix(data = predictions, reference = validation$late)
+		save(cm, file=cm_rda_filename)
+		print(cm)
+	}
 }

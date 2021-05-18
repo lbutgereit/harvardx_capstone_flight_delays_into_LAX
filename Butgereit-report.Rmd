@@ -20,6 +20,7 @@ if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 if(!require(Metrics)) install.packages("Metrics", repos = "http://cran.us.r-project.org")
+if(!require(imager)) install.packages("imager", repos = "http://cran.us.r-project.org")
 library(tidyverse)
 library(lubridate)
 library(stringr)
@@ -125,12 +126,21 @@ previous_half_hour <- function(time) {
   hour+minute
 }
 
+image_path <- "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Los_Angeles_International_Airport_-_LAX_sign.jpg/800px-Los_Angeles_International_Airport_-_LAX_sign.jpg"
+image <- load.image(image_path)
+
+
 ```
 
 \listoffigures
 
 \listoftables
 \newpage
+
+```{r, eval=TRUE, echo=FALSE}
+plot(image, axes=FALSE) 
+```
+
 
 # Introduction
 
@@ -327,7 +337,7 @@ validation_rda <- "validation.rda"
 non_validation_rda <- "non_validation.rda"
 test_rda <- "test.rda"
 train_rda <- "train.rda"
-investigate <- FALSE
+
 #
 # airport to investigate arrivals
 #
@@ -336,18 +346,20 @@ destination_airport <- "LAX"
 # percentage for validation set and then test set
 #
 percent <- 0.1
+
 #
 # which iteration to run
 #
-build_late_models_iteration_1 <- FALSE
+build_late_models_iteration_1 <- TRUE
 build_late_models_iteration_2 <- TRUE
-build_late_models_iteration_3 <- FALSE
+build_late_models_iteration_3 <- TRUE
+build_late_models_iteration_4 <- TRUE
 
 ```
 
 ## Download zip file and check sizes
 
-The script was broken up into sections where the sizes of all the downloaded files were tested before the next step was executed
+The script was broken up into sections where the sizes of all the downloaded files were tested before the next step was executed.  
 
 ```{r, echo=TRUE}
 #
@@ -441,6 +453,8 @@ df %>% knitr::kable(caption="Headings in Original Dataset",
                          label="results") %>% kableExtra::kable_styling(latex_options="hold_position")
 ```
 
+## Filter data and selecting columns
+
 Many of these columns were empty and many were not relevant to the issue at hand.  The author
 followed an interative approach into determining which columns were important.  An additional
 column was added which indicated whether or not the flight was late in arriving.
@@ -479,23 +493,24 @@ if ( (!file.exists(on_time_performance_rda)) ||
                         ArrDel15,
                         DepTime, ArrTime,
                         DepDelay, ArrDelay) %>%
-
                 filter(complete.cases(.)) %>%           # NB the full stop
-		mutate(late = ifelse(ArrDelay > 0, 1, 0),
+                mutate(late = factor(ifelse(ArrDelay > 0, 1, 0)),
+                       arrival_delay = factor(ArrDelay),
                        departure_slot = previous_half_hour(DepTime),
                        arrival_slot = previous_half_hour(ArrTime),
-                       arrival_slot_number = as.factor(arrival_slot),
+                       arrival_slot_number = factor(arrival_slot),
                        airline = factor(DOT_ID_Reporting_Airline),
                        flight_number = factor(Flight_Number_Reporting_Airline),
                        tail_number = factor(Tail_Number),
                        origin_airport = factor(OriginAirportID))
-
-
         print("filtered out NAs and selected columns")
+
         save(on_time_performance, file=on_time_performance_rda)
         print(paste("Saved", on_time_performance_rda))
 }
 ```
+
+## Creating *validation*, *train*, and *test* datasets
 
 From this newly created dataset, four subsets were created.  The first subset was to extract a validation
 set which would be put aside and not accessed until the final model was going to be evaluated.  The
@@ -530,7 +545,7 @@ if ( !file.exists(test_rda) || !file.exists(train_rda) || !file.exists(validatio
         # make validation and non-validation datasets
         #
         validation_index <- createDataPartition(y=on_time_performance$late, 
-						times=1, p=0.1, list=FALSE)
+						times=1, p=percent, list=FALSE)
         validation <- on_time_performance[validation_index,]
         non_validation <- on_time_performance[-validation_index,]
 
@@ -539,7 +554,7 @@ if ( !file.exists(test_rda) || !file.exists(train_rda) || !file.exists(validatio
         # divide the non-validation dataset into test and train
         #
         test_index <- createDataPartition(y=non_validation$late, 
-						times=1, p=0.1, list=FALSE)
+						times=1, p=percent, list=FALSE)
         test <- non_validation[test_index,]
         train <- non_validation[-test_index,]
 
@@ -591,20 +606,17 @@ df %>% knitr::kable(caption="Sizes of various datasets",
 # Exploratory Analysis {#exploration}
 
 All values and graphs in this exploratory section refer only to the
-*non_validation* set.  This includes the training set and test set combined, but
+*non_validation* set.  The *non_validation* dataset includes the training set and 
+test set combined, but
 specifically excludes the validation set which was extracted and saved
 for future use.  This section explores the data and reports on interesting
 findings.
 
-There are two sub-sections.  The first sub-section looks at specific characteristics
-of the *ArrDelay* data field.  It is important to remember that this data field could be
-positive (a delay) or negative (flight arrived early).  The second sub-section look
-specifically at the field *late* which was added by the author and indicates whether or not the flight
-was late.
+The section first looks at the *ArrDelay* field and how it is affected by other
+fields.  The section then looks specifically at the *late* field which indicates
+whether or not the flight arrived late.
 
-## Investigating *ArrDelay*
-
-### Arrival delays
+## Arrival delay
 
 Although the term is called *ArrDelay*, the value can be positive (indicating
 an actual delay) or negative (indicating that the flight arrived early).
@@ -623,9 +635,9 @@ df %>% knitr::kable(caption="Statistics about arrival delay times",
 ```
 \end{center}
 
-### Arrival delays through the years
+## Arrival delay through the years
 
-The data spanned a number of years from `r min(non_validation$Year)` to 
+The dataset included records which  spanned a number of years from `r min(non_validation$Year)` to 
 `r max(non_validation$Year)`.  A distribution of the flights throughout the 
 years can be seen in Figure \@ref(fig:distribution-flights-by-year)
 
@@ -644,7 +656,7 @@ bar_graph(x = flights_per_year$Year, y = flights_per_year$number_of_flights,
 rm(flights_per_year)  # free up memory
 ```
 
-### Average delay by year
+## Arrival delay by year
 
 The average arrival delay by year can be seen in Figure \@ref(fig:average-delay-by-year)
 
@@ -660,14 +672,16 @@ rm(flights_per_year)  # free up memory
 ```
 
 Figure \@ref(fig:average-delay-by-year) may show an over all trend of decreasing average
-arrival delays over the years.  However, this may not be useful in predicting arrival
+arrival delays over the years which may be due to the overall increase performance
+of the airline industry as a whole.  However, this may not be useful in predicting arrival
 delays in a new year.  It will have to be investigated
 
 
-### Average delay by month
+## Arrival delay by month
 
 The month of the year (indicating the season and possible weather effects) could
-influence arrival delays.  This relationship can be seen in Figure \@ref(fig:average-delay-by-month).
+influence arrival delays.  This relationship can be seen in 
+Figure \@ref(fig:average-delay-by-month).
 
 
 ```{r, average-delay-by-month, fig.cap="Average arrival delay by month"}
@@ -689,7 +703,7 @@ From Figure \@ref(fig:average-delay-by-month), one might argue that there is a v
 in average arrival delays in the summer months (June and July) and at the Christmas
 season (December).  But the change is not significant.
 
-### Arrival delay by day of the month
+## Arrival delay by day of the month
 
 The day of the month could possibly influence arrival times with end of month traffic
 being different than mid-month traffic.  This relationship can be seen in Figure
@@ -712,7 +726,7 @@ Although one may argue that Figure \@ref(fig:average-delay-by-day-of-month) show
 slight decrease in average delays at the end of them month, that decrease is not
 significant.
 
-### Arrival delay by day of the week
+## Arrival delay by day of the week
 
 The day of the week could possibly influence arrival times with weekend traffic
 being different than weekday traffic.  This relationship can be seen in Figure
@@ -737,7 +751,7 @@ rm(flights_per_day)  # free up memory
 Figure \@ref(fig:average-delay-by-day) clearly shows that day of the week is not
 a predictor of arrival delays.
 
-### Arrival delay by origin airport
+## Arrival delay by origin airport
 
 The airport where the flight originated may influence whether or not the flight arrives
 late at the destination airport.  This can be seen in Figure \@ref(fig:average-delay-by-origin-airport)
@@ -761,12 +775,13 @@ rm(flights_by_origin_airport)  # free up memory
 ```
 
 As can be seen in Figure \@ref(fig:average-delay-by-origin-airport), the airport from which
-a flight departs or originates is influential in determining whether or not the flight arrives on time
+a flight departs or originates could be a predictor of the arrival delay.  That means
+the airport could be influential in determining whether or not the flight arrives on time
 at its destination.  This could be because the airport of origin may consistently delay
 planes from departing on time or perhaps the airport of origin may consistently have
 foggy weather.  This must be investigated further.
 
-### Arrival delay by airline
+## Arrival delay by airline
 
 The airline itself may be an influencing factor on whether or not a flight arrives
 on time.  This relationship can be seen in Figure \@ref(fig:average-delay-by-airline).
@@ -792,11 +807,12 @@ arrival_delay_graph(
 rm(flights_by_airline)  # free up memory
 ```
 
-It is clear from \@ref(fig:average-delay-by-airline) that the airline itself is influential
+It is clear from \@ref(fig:average-delay-by-airline) that the airline itself could
+be a predictor of the arrival delay.  That means that the airlie could be influential
 in determining whether or not its own flights arrive on time.  This is intuitive.  Some
 airlines pride themselves on their *on time arrival* statistics.
 
-### Arrival delay by flight number
+## Arrival delay by flight number
 
 The flight itself may determine whether or not it is late in arriving.  This could be due
 to the departing airport (which would be the same for all flights with the same flight number)
@@ -830,11 +846,12 @@ flight number itself is a predictor of possible arrival delays for that flight. 
 must be investigated further.  Care must also be taken to not allow airport of origin,
 airline, and flight number to over emphasize the same fact.
 
-### Arrival delay by tail number (specific airplane)
+## Arrival delay by tail number (specific airplane)
 
 Physical airplanes have unique tail numbers. The specific physical airplane itself may 
 determine whether or not it is late in arriving.  This may indicate that this
-specific physical airplane flies faster or slower.  This relationship can be seen
+specific physical airplane flies faster or slower than other physical airplanes.  This 
+relationship can be seen
 in Figure \@ref(fig:average-delay-by-tail-number).
 
 ```{r, average-delay-by-tail-number, fig.cap="Average arrival delay by tail number"}
@@ -863,7 +880,7 @@ is a predictor of arrival delays.  But care must be taken to not allow the airpo
 origin, airline, flight number, and tail number to over emphasize some common
 fact.
 
-### Arrival delay by distance flown
+## Arrival delay by distance flown
 
 The distance of a flight may influence whether or not there is a delay in arrival.
 This relationship can be seen in Figure \@ref(fig:average-delay-by-distance).
@@ -887,11 +904,11 @@ From Figure \@ref(fig:average-delay-by-distance), it can be seen that the distan
 flown (distance between the origin airport and the destination airport) is not
 a predictor of arrival delays.
 
-### Arrival delay by departure delay
+## Arrival delay by departure delay
 
 It is intuitive to assume that if the flight departs late, then it will probably
-arrive late.
-This relationship can be seen in Figure \@ref(fig:average-delay-by-departure-delay).
+arrive late.  This relationship can be seen 
+in Figure \@ref(fig:average-delay-by-departure-delay).
 
 ```{r, average-delay-by-departure-delay, fig.cap="Average arrival delay by departure delay"}
 flights_by_departure_delay <- non_validation %>% group_by(DepDelay) %>%
@@ -907,10 +924,11 @@ arrival_delay_graph(
 
 ```
 
-The horizontal and vertical scales on Figure \@ref(fig:average-delay-by-departure-delay) are the same showing
-a near linear relationship between departure delay and arrival delay.  This leads the author to believe that
-perhaps two models must be created:  1) one that attempts make predictions before the flight departs and 2) and
-one that attempts to make predictions immediately after the flight departs taking into account any
+The horizontal and vertical scales on Figure \@ref(fig:average-delay-by-departure-delay) are 
+the same showing a near linear relationship between departure delay and arrival delay.  This 
+leads the author to believe that perhaps two models must be created:  1) one that attempts 
+make predictions before the flight departs and 2) and one that attempts to make 
+predictions immediately after the flight departs taking into account any
 departure delays.
 
 The limits of the horizontal and vertical axes can changed to include all arrival delays and 
@@ -931,12 +949,13 @@ arrival_delay_graph(
 rm(flights_by_departure_delay)  # free up memory
 ```
 
-Figure \@ref(fig:average-delay-by-departure-delay-extended) shows that even with flights which had the maximum
+Figure \@ref(fig:average-delay-by-departure-delay-extended) shows that even with flights 
+which had the maximum
 arrival delays (`r max(non_validation$ArrDelay)` minutes), the linear relationship exists.
 
-### Arrival delay by time flying
+## Arrival delay by time flying
 
-The duration of a flight may influence whether or not there is a delay in arrival.
+The duration of a flight (in minutes) may influence whether or not there is a delay in arrival.
 This relationship can be seen in Figure \@ref(fig:average-delay-by-airtime).
 
 ```{r, average-delay-by-airtime, fig.cap="Average arrival delay by airtime flown"}
@@ -957,31 +976,7 @@ rm(flights_by_airtime)  # free up memory
 Figure \@ref(fig:average-delay-by-airtime) shows that the time flying is not a predictor
 of arrival delays.
 
-### Arrival delay by departure time
-
-***LB*** why is this graph wonky
-
-The departure time of the flight (when it should have departed from the airport of origin) could be
-influential
-
-```{r, average-delay-by-departure-time, fig.cap="Average arrival delay by departure time"}
-flights_by_departure_time <- non_validation %>% group_by(departure_slot) %>%
-  summarize(average_delay = mean(ArrDelay), 
-		departure_slot = first(departure_slot))
-arrival_delay_graph(
-    x = flights_by_departure_time$departure_slot,
-    y = flights_by_departure_time$average_delay,
-    data=flights_by_departure_time) +
-  xlab("Departure Time") +
-  scale_x_continuous(limits=c(0, 2500), breaks=seq(0, 2400, 100))+
-  theme(axis.text.x = element_text(angle = 270, vjust = 0.5, hjust=1))
-
-```
-```{r, eval=TRUE, echo=FALSE}
-rm(flights_by_departure_time)  # free up memory
-```
-
-### Arrival delay by arrival time
+## Arrival delay by arrival time
 
 The arrival time of the flight (when it should have arrived at the destination airport) could be
 influential in predicting arrival delays.  This relationship can be seen in 
@@ -1029,15 +1024,16 @@ df %>% knitr::kable(caption="Example Flight Chicago to Los Angeles",
 \end{center}
 
 Typical flying time from Chicago to Los Angeles is 4.5 hours or 270 minutes.  In the example
-displayed in Table \@ref(tab:ORD-LAX), the total *AirTime* is approximately equal.  But if
+displayed in Table \@ref(tab:ORD-LAX), the total *AirTime* is in near 270 minutes.  But if
 you subtract the *DepTime* from the *ArrTime*, there is only approximately 2 hours.  Therefore,
 it is appropriate to assume that the fields *DepTime* and *ArrTime* refer to the local
 time at the airport in question.
 
 Therefore Figure \@ref(fig:average-delay-by-arrival-time) shows an increase in arrival
-delays during the evening, night, and early morning hours.
+delays during the evening, night, and early morning hours.  This could be an important
+predictor of flight delays.
 
-## Investigating *late*
+## Investigating *late* {#lateInvestigation}
 
 This sub-section specifically looks at boolean field *late* which is one if the flight was late (arrived later than scheduled)
 and was zero otherwise.  This field did not cater for earlier arrivals.  Statistics about the *late* field can be 
@@ -1078,9 +1074,11 @@ df %>% knitr::kable(caption="Important columns in dataset",
 \end{center}
 
 From these fields, two were omitted from the models which investigation.  The flight number provides
-the same type of information as the airport of origin and can be omitted.  The tail number (which
-identifies the physical plane being used) had too many elements and the notebook where this model
-was developed couldn't handle the sizes.  This is explained in more detail in Sub-Section LB
+the same type of information as the airport of origin with the possible loss of information
+about the actual flight crew involved in the flight.  The tail number (which
+identifies the physical plane being used).
+
+These two fields were omitted as is explained in more detail in Sub-Section \@ref(iteration-1).
 
 \newpage
 # Model Investigations and Results {#model}
@@ -1090,41 +1088,73 @@ deals primarily with the *train* dataset and the *test* dataset.  The *validatio
 section except at the end to test the final model.  That is described in section LB
 
 There were four iterations of model development.  
-## Iteration # 1 - Superficial loop through a number of models
+
+## Iteration 1 - Superficial loop through a number of models {#iteration-1}
 
 The first attempt to find a model to predict whether or not a flight will be late involved a superficial
 run through a handful of different models using default values.  Four different models were chosen because
 their were *structurally* different.  The four different models attempted to solve the problem in completely
 different ways.
 
-These four models were *glm* (Generalized Linear Model), *rpart* (a decision tree), *mlp* (a multilayer peceptron), and *knn* (K nearest neighbour).  These were run using default values using two iterations each.  This gave the author an indication of which model might be the most effective.
+The first attempt at Iteration #1 was to include all the fields itemized in Table
+\@ref(tab:ImportantColumns).  For the first attempt, the notebook used had 4 Gig of swapspace.
+The building of the *rpart* model crashed.  The author increased swapspace to 8 Gig.  The
+*rpart* model built for a substantial amount of additional time but still crashed.  The
+author increased the swapspace again to 16 Gig and the model still crashed.  On investigation
+the tail number included LB unique factor and the flight number included LB unique factor.
+The author believes that the number of factors was too high for the compute environment
+available to the author.  Those two fields were removed
 
-This investigation took some time and the code to execute this is not *executable* in this document but
+
+These four models were *glm* (Generalized Linear Model), *rpart* (a decision tree), *mlp* 
+(a multilayer peceptron), and *knn* (K nearest neighbour).  These were run using default 
+values using two iterations each.  This gave the author an indication of which model 
+might be the most effective.
+
+This investigation took some time and the code to execute this is not *executable* in 
+this document but
 is presented for reading purposes only.  The code is, of course, executable on the R script file
 presented with this document.
 
 ```{r, eval=FALSE, echo=TRUE}
+#
+# determine if we must rebuild the model for each iteration
+# and associated confusion matrix
+must_rebuild <- function(model_rda_filename, cm_rda_filename ) {
+        (!file.exists(model_rda_filename)) ||
+        (!file.exists(cm_rda_filename)) ||
+        (file.info(model_rda_filename)$ctime < file.info(train_rda)$ctime) ||
+        (file.info(cm_rda_filename)$ctime < file.info(train_rda)$ctime)
+}
+
 if ( build_late_models_iteration_1 ) {
         load(train_rda)
         load(test_rda)
-        models <- c("rpart", "glm", "mlp")              # knn didn't return within 12 hours
+        models <- c("rpart", "glm", "mlp")              # rf and knn never returned
         fits <- lapply(models, function(model) {
                 print(model)
-                print(Sys.time())
-                fit <- train(
-                        late ~ airline + origin_airport + ArrTime + DepDelay,
-                        method=model, data=train,
-                        tuneLength = 2)
-                print(Sys.time())
-                print(fit)
-                save(fit, file=paste(model, ".rda", sep=""))
-                predictions <- predict(fit, test)
-                print(paste("length predictions", length(predictions)))
-                print(paste("length test$late", length(test$late)))
-                cm <- confusionMatrix(data = predictions, reference = test$late)
-                print(cm)
+                model_rda_filename <- paste(model, "_1.rda", sep="")
+                cm_rda_filename <- paste(model, "_1_cm.rda", sep="")
+                if ( must_rebuild(model_rda_filename, cm_rda_filename ) ) {
+                        print(Sys.time())
+                        fit <- train(
+                                late ~ airline + origin_airport + ArrTime + DepDelay,
+                                method=model, data=train,
+                                tuneLength = 2)
+                        print(Sys.time())
+                        print(fit)
+                        save(fit, file=model_rda_filename)
+                        predictions <- predict(fit, test)
+                        print(paste("length predictions", length(predictions)))
+                        print(paste("length test$late", length(test$late)))
+                        cm <- confusionMatrix(data = predictions, reference = test$late)
+                        save(cm, file=cm_rda_filename)
+                        print(cm)
+                }
         })
+        rm(test, train)
 }
+
 ```
 
 The *knn* model did not complete after 12 hours.  The information for the other three models
@@ -1132,21 +1162,35 @@ is presented in Table \@ref(tab:iteration-1-model-results).
 
 
 ```{r, eval=TRUE, echo=FALSE}
+load("rpart_1.rda")
+rpart_fit <- fit
+load("glm_1.rda")
+glm_fit <- fit
+load("mlp_1.rda")
+mlp_fit <- fit
+load("rpart_1_cm.rda")
+rpart_cm <- cm
+load("glm_1_cm.rda")
+glm_cm <- cm
+load("mlp_1_cm.rda")
+mlp_cm <- cm
 Model <- c("rpart", "glm", "mlp")
-Best Parameter <- c("cp = 0.0008950666", "NA", "size = 1")
-Accuracy <- c(0.7589, 0.7622, 0.565)
-Sensitivity <- c(0.9329, 0.9125, 1.000)
-Specificity <- c(0.5329, 0.5670, 0.000)
-df <- data.frame(Field, Value)
+BestParameter <- c(paste(names(rpart_fit$bestTune), "=", rpart_fit$bestTune, sep=" "), "NA", 
+		    paste(names(mlp_fit$bestTune), "=", mlp_fit$bestTune, sep=" "))
+Accuracy <- c(rpart_cm$overall[1], glm_cm$overall[1], mlp_cm$overall[1])
+Sensitivity <- c(rpart_cm$byClass[1], glm_cm$byClass[1], mlp_cm$byClass[1])
+Specificity <- c(rpart_cm$byClass[2], glm_cm$byClass[2], mlp_cm$byClass[2])
+df <- data.frame(Model, BestParameter, Accuracy, Sensitivity, Specificity)
 df %>% knitr::kable(caption="Iteration 1 model results",
                          label="iteration-1-model-results") %>% kableExtra::kable_styling(latex_options="hold_position")
+rm(rpart_fit, glm_fit, mlp_fit, rpart_cm, glm_cm, mlp_cm, fit, cm)
 ```
 
 This information informs the author that the *rpart* model and *glm* model performed similarly.  Better results
 might be obtained if actual tuning parameters were given - especially in the case of the *mlp* model.
 tuning parameters were used.
 
-## Itereation # 2 - Loop through models with tuning parameters
+## Iteration 2 - Loop through models with tuning parameters
 
 The second iteration on attempting to predict whether or not a flight was lates used tuning
 parameters for the four models.  In the case of the *rpart* model and the *glm* model, parameters
@@ -1203,21 +1247,35 @@ if ( build_late_models_iteration_2 ) {
 The results of Iteration 2 can be seen in Table \@ref(tab:iteration-2-model-results).
 
 ```{r, eval=TRUE, echo=FALSE}
+load("rpart_2.rda")
+rpart_fit <- fit
+load("glm_1.rda")		# this is correct.  Using the previous iteration for glm
+glm_fit <- fit
+load("mlp_2.rda")
+mlp_fit <- fit
+load("rpart_2_cm.rda")
+rpart_cm <- cm
+load("glm_1_cm.rda")		# this is correct.  Using the previous iteration for glm
+glm_cm <- cm
+load("mlp_2_cm.rda")
+mlp_cm <- cm
 Model <- c("rpart", "glm", "mlp")
-Best Parameter <- c("cp = 5e-04", "NA", "size = 3")
-Accuracy <- c(0.7626, 0.7622, 0.565)
-Sensitivity <- c(0.9092, 0.9125, 1.000)
-Specificity <- c(0.5722, 0.5670, 0.000)
-df <- data.frame(Field, Value)
+BestParameter <- c(paste(names(rpart_fit$bestTune), "=", rpart_fit$bestTune, sep=" "), "NA",
+                    paste(names(mlp_fit$bestTune), "=", mlp_fit$bestTune, sep=" "))
+Accuracy <- c(rpart_cm$overall[1], glm_cm$overall[1], mlp_cm$overall[1])
+Sensitivity <- c(rpart_cm$byClass[1], glm_cm$byClass[1], mlp_cm$byClass[1])
+Specificity <- c(rpart_cm$byClass[2], glm_cm$byClass[2], mlp_cm$byClass[2])
+df <- data.frame(Model, BestParameter, Accuracy, Sensitivity, Specificity)
 df %>% knitr::kable(caption="Iteration 2 model results",
                          label="iteration-2-model-results") %>% kableExtra::kable_styling(latex_options="hold_position")
+rm(rpart_fit, glm_fit, mlp_fit, rpart_cm, glm_cm, mlp_cm, fit, cm)
 ```
 
 This information informs the author that the *rpart* model and *glm* model performed similarly.
 Those two models will be investigated in more detail in Iteration 3.
 
 
-## Iteration # 3 - Selection of best model and further tuning
+## Iteration 3 - Selection of best model and further tuning
 
 The tuning parameters for *rpart* were expanded and compared to the one configuration for *glm*.  
 
@@ -1265,15 +1323,24 @@ if ( build_late_models_iteration_3 ) {
 
 The results of Iteration 3 can be seen in Table \@ref(tab:iteration-3-model-results).
 
-```r, eval=TRUE, echo=FALSE}
+```{r, eval=TRUE, echo=FALSE}
+load("rpart_3.rda")
+rpart_fit <- fit
+load("glm_1.rda")		# this is correct.  Using the previous iteration for glm
+glm_fit <- fit
+load("rpart_3_cm.rda")
+rpart_cm <- cm
+load("glm_1_cm.rda")		# this is correct.  Using the previous iteration for glm
+glm_cm <- cm
 Model <- c("rpart", "glm")
-Best Parameter <- c("cp = 8e-04", "NA")
-Accuracy <- c(0.7618, 0.7622)
-Sensitivity <- c(0.9176, 0.9125)
-Specificity <- c(0.5595, 0.5670)
-df <- data.frame(Field, Value)
+BestParameter <- c(paste(names(rpart_fit$bestTune), "=", rpart_fit$bestTune, sep=" "), "NA")
+Accuracy <- c(rpart_cm$overall[1], glm_cm$overall[1])
+Sensitivity <- c(rpart_cm$byClass[1], glm_cm$byClass[1])
+Specificity <- c(rpart_cm$byClass[2], glm_cm$byClass[2])
+df <- data.frame(Model, BestParameter, Accuracy, Sensitivity, Specificity)
 df %>% knitr::kable(caption="Iteration 3 model results",
                          label="iteration-3-model-results") %>% kableExtra::kable_styling(latex_options="hold_position")
+rm(rpart_fit, glm_fit, rpart_cm, glm_cm, fit, cm)
 ```
 
 ## Iteration 4 - Final model with *validation* dataset
@@ -1308,15 +1375,20 @@ if ( build_late_models_iteration_4 ) {
 
 The results of Iteration 4 can be seen in Table 
 
-```r, eval=TRUE, echo=FALSE}
+```{r, eval=TRUE, echo=FALSE}
+load("rpart_4.rda")
+rpart_fit <- fit
+load("rpart_4_cm.rda")
+rpart_cm <- cm
 Model <- c("rpart")
-Parameter <- c("cp = 5e-04")
-Accuracy <- c(0.7598)
-Sensitivity <- c(0.8963)
-Specificity <- c(0.5825)
-df <- data.frame(Field, Value)
+BestParameter <- c(paste(names(rpart_fit$bestTune), "=", rpart_fit$bestTune, sep=" "))
+Accuracy <- c(rpart_cm$overall[1])
+Sensitivity <- c(rpart_cm$byClass[1])
+Specificity <- c(rpart_cm$byClass[2])
+df <- data.frame(Model, BestParameter, Accuracy, Sensitivity, Specificity)
 df %>% knitr::kable(caption="Iteration 4 model results",
                          label="iteration-4-model-results") %>% kableExtra::kable_styling(latex_options="hold_position")
+rm(rpart_fit, fit, rpart_cm, cm)
 ```
 
 
