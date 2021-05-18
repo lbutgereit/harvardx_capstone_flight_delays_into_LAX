@@ -303,21 +303,45 @@ the required zip file, store the file locally, and then to check the size of the
 
 First a handful of pseudo-constants were set up
 
-```{r, echo=TRUE}
+```{r, eval=TRUE, echo=TRUE}
+#
+# download time out.  if you have slow internet, you may need to
+# increase this value.  it is measured in seconds
+#
 download_timeout <- 600 # seconds == 10 minutes
-on_time_performance_url <- 
-"https://dax-cdn.cdn.appdomain.cloud/dax-airline/1.0.1/airline_2m.tar.gz"
+
+#
+# url of data file.  important stats about data file etc
+#
+on_time_performance_url <- "https://dax-cdn.cdn.appdomain.cloud/dax-airline/1.0.1/airline_2m.tar.gz"
 on_time_performance_gz <- "airline_2m.tar.gz"
 on_time_performance_gz_size <- 151681776
 on_time_performance_csv <- "airline_2m.csv"
 on_time_performance_csv_size <- 882162600
 on_time_performance_rda <- "on_time_performance.rda"
+
+#
+# intermediate objects
+#
 validation_rda <- "validation.rda"
 non_validation_rda <- "non_validation.rda"
 test_rda <- "test.rda"
 train_rda <- "train.rda"
-build_models <- FALSE
+investigate <- FALSE
+#
+# airport to investigate arrivals
+#
 destination_airport <- "LAX"
+#
+# percentage for validation set and then test set
+#
+percent <- 0.1
+#
+# which iteration to run
+#
+build_late_models_iteration_1 <- FALSE
+build_late_models_iteration_2 <- TRUE
+build_late_models_iteration_3 <- FALSE
 
 ```
 
@@ -599,23 +623,7 @@ df %>% knitr::kable(caption="Statistics about arrival delay times",
 ```
 \end{center}
 
-The distribution of arrival delay values can be seen in 
-Figure \@ref(fig:distribution-arrival-delays).
-
-```{r, distribution-arrival-delays, fig.cap="Distribution of arrival delays"}
-flights_per_delays <- non_validation %>% group_by(ArrDelay) %>%
-  summarize(number_of_flights = n(), ArrDelay = first(ArrDelay))
-options(scipen=100000)
-bar_graph(x = flights_per_delays$number_of_flights,
-	  y = flights_per_delays$number_of_flights,
-                data=flights_per_delays) +
-  xlab("Arrival delay (minutes)") +
-  ylab("Number of flights")
-```
-```{r, eval=TRUE, echo=FALSE}
-rm(flights_per_delays)  # free up memory
-```
-### Years
+### Arrival delays through the years
 
 The data spanned a number of years from `r min(non_validation$Year)` to 
 `r max(non_validation$Year)`.  A distribution of the flights throughout the 
@@ -1042,7 +1050,9 @@ Measurement <- c("Total Rows", "Late", "% Late", "Not Late", "% Not Late")
 nrow <- nrow(non_validation)
 sum_late <- sum(non_validation$late == 1)
 sum_not_late <- sum(non_validation$late != 1)
-Value <- c(nrow, sum_late, sum_late / nrow, sum_not_late, sum_not_late / nrow)
+percent_late <- sum_late / nrow
+percent_not_late <- sum_not_late / nrow
+Value <- c(nrow, sum_late, percent_late, sum_not_late, percent_not_late)
 df <- data.frame(Measurement, Value)
 df %>% knitr::kable(caption="Statistics about late arrivals",
                          label="LateStats") %>% kableExtra::kable_styling(latex_options="hold_position")
@@ -1067,26 +1077,247 @@ df %>% knitr::kable(caption="Important columns in dataset",
 ```
 \end{center}
 
-However, this project is attempting to predict whether or not a flight will be late *before* it takes off.  Therefore,
-the departure delay field will be omitted.
+From these fields, two were omitted from the models which investigation.  The flight number provides
+the same type of information as the airport of origin and can be omitted.  The tail number (which
+identifies the physical plane being used) had too many elements and the notebook where this model
+was developed couldn't handle the sizes.  This is explained in more detail in Sub-Section LB
 
 \newpage
 # Model Investigations and Results {#model}
 
 This section discusses the various models which were developed and the results which were obtained.  This section
 deals primarily with the *train* dataset and the *test* dataset.  The *validation* dataset is not used in this
-section.
+section except at the end to test the final model.  That is described in section LB
 
-## Superficial loop through a number of models
+There were four iterations of model development.  
+## Iteration # 1 - Superficial loop through a number of models
 
 The first attempt to find a model to predict whether or not a flight will be late involved a superficial
 run through a handful of different models using default values.  Four different models were chosen because
 their were *structurally* different.  The four different models attempted to solve the problem in completely
 different ways.
 
-These four models were *glm* (Generalized Linear Model), *rpart* (a decision tree), *mlp* (a multilayer peceptron),
-and *knn* (K nearest neighbour).  These were run using default values using three iterations each.  This gave
-the author an indication of which model might be the most effective.
+These four models were *glm* (Generalized Linear Model), *rpart* (a decision tree), *mlp* (a multilayer peceptron), and *knn* (K nearest neighbour).  These were run using default values using two iterations each.  This gave the author an indication of which model might be the most effective.
+
+This investigation took some time and the code to execute this is not *executable* in this document but
+is presented for reading purposes only.  The code is, of course, executable on the R script file
+presented with this document.
+
+```{r, eval=FALSE, echo=TRUE}
+if ( build_late_models_iteration_1 ) {
+        load(train_rda)
+        load(test_rda)
+        models <- c("rpart", "glm", "mlp")              # knn didn't return within 12 hours
+        fits <- lapply(models, function(model) {
+                print(model)
+                print(Sys.time())
+                fit <- train(
+                        late ~ airline + origin_airport + ArrTime + DepDelay,
+                        method=model, data=train,
+                        tuneLength = 2)
+                print(Sys.time())
+                print(fit)
+                save(fit, file=paste(model, ".rda", sep=""))
+                predictions <- predict(fit, test)
+                print(paste("length predictions", length(predictions)))
+                print(paste("length test$late", length(test$late)))
+                cm <- confusionMatrix(data = predictions, reference = test$late)
+                print(cm)
+        })
+}
+```
+
+The *knn* model did not complete after 12 hours.  The information for the other three models
+is presented in Table \@ref(tab:iteration-1-model-results).
+
+
+```{r, eval=TRUE, echo=FALSE}
+Model <- c("rpart", "glm", "mlp")
+Best Parameter <- c("cp = 0.0008950666", "NA", "size = 1")
+Accuracy <- c(0.7589, 0.7622, 0.565)
+Sensitivity <- c(0.9329, 0.9125, 1.000)
+Specificity <- c(0.5329, 0.5670, 0.000)
+df <- data.frame(Field, Value)
+df %>% knitr::kable(caption="Iteration 1 model results",
+                         label="iteration-1-model-results") %>% kableExtra::kable_styling(latex_options="hold_position")
+```
+
+This information informs the author that the *rpart* model and *glm* model performed similarly.  Better results
+might be obtained if actual tuning parameters were given - especially in the case of the *mlp* model.
+tuning parameters were used.
+
+## Itereation # 2 - Loop through models with tuning parameters
+
+The second iteration on attempting to predict whether or not a flight was lates used tuning
+parameters for the four models.  In the case of the *rpart* model and the *glm* model, parameters
+in the vicinity of the parameters provided in the first iteration were used.  In the case of
+the *mlp* model and the *knn* model, the author chose a range of values to try.
+
+This investigation took some time and the code to execute this is not *executable* in this document but
+is presented for reading purposes only.  The code is, of course, executable on the R script file
+presented with this document.
+
+```{r, eval=FALSE, echo=TRUE}
+if ( build_late_models_iteration_2 ) {
+        load(train_rda)
+        load(test_rda)
+        #
+        # models and tuning_parameters must be in same order.
+        # NAs for models with no tuning parameters
+        #
+        models <- c("rpart", "glm", "mlp")
+        tuning_parameters <- c(
+                        data.frame(cp = seq(.0005, .00100, 0.0001)),    # rpart
+                        NA,                                             # glm - no tuning parameters
+                        data.frame(size = seq(3, 23, 5)))               # mlp
+        for(i in 1:length(models) ) {
+                model <- models[i]
+                print(model)
+                print(Sys.time())
+                fit <- NA                       # scoping
+                if ( is.na(tuning_parameters[i]  ) ) {
+                        print(paste("model=", model, " no tuning parameters", sep=" "))
+                        fit <- train(
+                                late ~ airline + origin_airport + ArrTime + DepDelay,
+                                method=model, data=train)
+                } else {
+                        print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
+                        fit <- train(
+                                late ~ airline + origin_airport + ArrTime + DepDelay,
+                                method=model, data=train,
+                                tuneGrid = expand.grid(tuning_parameters[i]))
+                }
+                print(Sys.time())
+                print(fit)
+                save(fit, file=paste(model, ".rda", sep=""))
+                predictions <- predict(fit, test)
+                print(paste("length predictions", length(predictions)))
+                print(paste("length test$late", length(test$late)))
+                cm <- confusionMatrix(data = predictions, reference = test$late)
+                print(cm)
+        }
+}
+
+```
+
+The results of Iteration 2 can be seen in Table \@ref(tab:iteration-2-model-results).
+
+```{r, eval=TRUE, echo=FALSE}
+Model <- c("rpart", "glm", "mlp")
+Best Parameter <- c("cp = 5e-04", "NA", "size = 3")
+Accuracy <- c(0.7626, 0.7622, 0.565)
+Sensitivity <- c(0.9092, 0.9125, 1.000)
+Specificity <- c(0.5722, 0.5670, 0.000)
+df <- data.frame(Field, Value)
+df %>% knitr::kable(caption="Iteration 2 model results",
+                         label="iteration-2-model-results") %>% kableExtra::kable_styling(latex_options="hold_position")
+```
+
+This information informs the author that the *rpart* model and *glm* model performed similarly.
+Those two models will be investigated in more detail in Iteration 3.
+
+
+## Iteration # 3 - Selection of best model and further tuning
+
+The tuning parameters for *rpart* were expanded and compared to the one configuration for *glm*.  
+
+```{r, eval=FALSE, echo=TRUE}
+if ( build_late_models_iteration_3 ) {
+        load(train_rda)
+        load(test_rda)
+        #
+        # models and tuning_parameters must be in same order.
+        # NAs for models with no tuning parameters
+        #
+        models <- c("rpart", "glm")
+        tuning_parameters <- c(
+                        data.frame(cp = seq(.0001, .00200, 0.0001)),    # rpart
+                        NA)                                             # glm - no tuning parameters
+        for(i in 1:length(models) ) {
+                model <- models[i]
+                print(model)
+                print(Sys.time())
+                fit <- NA                       # scoping
+                if ( is.na(tuning_parameters[i]  ) ) {
+                        print(paste("model=", model, " no tuning parameters", sep=" "))
+                        fit <- train(
+                                late ~ airline + origin_airport + ArrTime + DepDelay,
+                                method=model, data=train)
+                } else {
+                        print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
+                        fit <- train(
+                                late ~ airline + origin_airport + ArrTime + DepDelay,
+                                method=model, data=train,
+                                tuneGrid = expand.grid(tuning_parameters[i]))
+                }
+                print(Sys.time())
+                print(fit)
+                save(fit, file=paste(model, ".rda", sep=""))
+                predictions <- predict(fit, test)
+                print(paste("length predictions", length(predictions)))
+                print(paste("length test$late", length(test$late)))
+                cm <- confusionMatrix(data = predictions, reference = test$late)
+                print(cm)
+        }
+}
+
+```
+
+The results of Iteration 3 can be seen in Table \@ref(tab:iteration-3-model-results).
+
+```r, eval=TRUE, echo=FALSE}
+Model <- c("rpart", "glm")
+Best Parameter <- c("cp = 8e-04", "NA")
+Accuracy <- c(0.7618, 0.7622)
+Sensitivity <- c(0.9176, 0.9125)
+Specificity <- c(0.5595, 0.5670)
+df <- data.frame(Field, Value)
+df %>% knitr::kable(caption="Iteration 3 model results",
+                         label="iteration-3-model-results") %>% kableExtra::kable_styling(latex_options="hold_position")
+```
+
+## Iteration 4 - Final model with *validation* dataset
+
+As a result of Iteration 3, the *rpart* algorithm with a *cp* value of 5e-04 provided the best accuracy values.
+
+```{r, eval=FALSE, echo=TRUE}
+if ( build_late_models_iteration_4 ) {
+        #
+        # now the entire non_validation data set (which comprises train and test)
+        # will be used to train the rpart model and the validation set will be
+        # used to validate it
+        #
+        load(non_validation_rda)
+        load(validation_rda)
+        print(Sys.time())
+        fit <- train(
+                late ~ airline + origin_airport + ArrTime + DepDelay,
+                method="rpart", data=non_validation,
+                tuneGrid = data.frame(cp = 5e-04))
+        print(Sys.time())
+        print(fit)
+        save(fit, file="rpart.rda")
+        predictions <- predict(fit, validation)
+        print(paste("length predictions", length(predictions)))
+        print(paste("length validation$late", length(validation$late)))
+        cm <- confusionMatrix(data = predictions, reference = validation$late)
+        print(cm)
+}
+
+```
+
+The results of Iteration 4 can be seen in Table 
+
+```r, eval=TRUE, echo=FALSE}
+Model <- c("rpart")
+Parameter <- c("cp = 5e-04")
+Accuracy <- c(0.7598)
+Sensitivity <- c(0.8963)
+Specificity <- c(0.5825)
+df <- data.frame(Field, Value)
+df %>% knitr::kable(caption="Iteration 4 model results",
+                         label="iteration-4-model-results") %>% kableExtra::kable_styling(latex_options="hold_position")
+```
 
 
 ## Summary of Results {#results}

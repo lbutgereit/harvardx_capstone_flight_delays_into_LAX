@@ -8,22 +8,46 @@ library(tidyverse)
 library(caret)
 library(utils)     # untar
 
+#
+# download time out.  if you have slow internet, you may need to
+# increase this value.  it is measured in seconds
+#
 download_timeout <- 600 # seconds == 10 minutes
+
+#
+# url of data file.  important stats about data file etc
+#
 on_time_performance_url <- "https://dax-cdn.cdn.appdomain.cloud/dax-airline/1.0.1/airline_2m.tar.gz"
 on_time_performance_gz <- "airline_2m.tar.gz"
 on_time_performance_gz_size <- 151681776
 on_time_performance_csv <- "airline_2m.csv"
 on_time_performance_csv_size <- 882162600
 on_time_performance_rda <- "on_time_performance.rda"
+
+#
+# intermediate objects
+#
 validation_rda <- "validation.rda"
 non_validation_rda <- "non_validation.rda"
 test_rda <- "test.rda"
 train_rda <- "train.rda"
 investigate <- FALSE
-build_late_models_iteration_1 <- TRUE
-build_late_models_iteration_2 <- FALSE
+#
+# airport to investigate arrivals
+#
 destination_airport <- "LAX"
-percent <- 0.1        # validation set and test set percentage
+#
+# percentage for validation set and then test set
+#
+percent <- 0.1         
+#
+# which iteration to run
+#
+build_late_models_iteration_1 <- TRUE
+build_late_models_iteration_2 <- TRUE
+build_late_models_iteration_3 <- TRUE
+build_late_models_iteration_4 <- TRUE
+
 
 #
 # functions for time handling
@@ -351,7 +375,7 @@ if ( investigate ) {
 if ( build_late_models_iteration_1 ) {
 	load(train_rda)
 	load(test_rda)
-	models <- c("rpart", "glm", "mlp", "knn")
+	models <- c("rpart", "glm", "mlp")		# rf and knn never returned
 	fits <- lapply(models, function(model) {
 		print(model)
 		print(Sys.time())
@@ -361,12 +385,120 @@ if ( build_late_models_iteration_1 ) {
 			tuneLength = 2)
 		print(Sys.time())
 		print(fit)
-		save(fit, file=paste(model, ".rda", sep=""))
+		save(fit, file=paste(model, "_1.rda", sep=""))
 		predictions <- predict(fit, test)
 		print(paste("length predictions", length(predictions)))
 		print(paste("length test$late", length(test$late)))
 		cm <- confusionMatrix(data = predictions, reference = test$late)
+		save(cm, file=paste(model, "_1_cm.rda", sep=""))
 		print(cm)
 	})
+	rm(test, train)
 }
 
+if ( build_late_models_iteration_2 ) {
+	load(train_rda)
+	load(test_rda)
+	#
+	# models and tuning_parameters must be in same order.
+	# NAs for models with no tuning parameters
+	#
+	models <- c("rpart", "glm", "mlp")
+	tuning_parameters <- c(
+			data.frame(cp = seq(.0005, .00100, 0.0001)), 	# rpart
+			NA,		 				# glm - no tuning parameters
+			data.frame(size = seq(3, 23, 10)))    		# mlp
+	for(i in 1:length(models) ) {
+		model <- models[i]
+		print(model)
+		print(Sys.time())
+		fit <- NA			# scoping
+		if ( is.na(tuning_parameters[i]  ) ) {
+			print(paste("model=", model, " no tuning parameters", sep=" "))
+			fit <- train(
+				late ~ airline + origin_airport + ArrTime + DepDelay,        
+				method=model, data=train)
+		} else {
+			print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
+			fit <- train(
+				late ~ airline + origin_airport + ArrTime + DepDelay,        
+				method=model, data=train,
+				tuneGrid = expand.grid(tuning_parameters[i]))
+		}
+		print(Sys.time())
+		print(fit)
+		save(fit, file=paste(model, "_2.rda", sep=""))
+		predictions <- predict(fit, test)
+		print(paste("length predictions", length(predictions)))
+		print(paste("length test$late", length(test$late)))
+		cm <- confusionMatrix(data = predictions, reference = test$late)
+		save(cm, file=paste(model, "_2_cm.rda", sep=""))
+		print(cm)
+	}
+	rm(test, train)
+}
+
+if ( build_late_models_iteration_3 ) {
+	load(train_rda)
+	load(test_rda)
+	#
+	# models and tuning_parameters must be in same order.
+	# NAs for models with no tuning parameters
+	#
+	models <- c("rpart", "glm")
+	tuning_parameters <- c(
+			data.frame(cp = seq(.0001, .00200, 0.0001)), 	# rpart
+			NA)		 				# glm - no tuning parameters
+	for(i in 1:length(models) ) {
+		model <- models[i]
+		print(model)
+		print(Sys.time())
+		fit <- NA			# scoping
+		if ( is.na(tuning_parameters[i]  ) ) {
+			print(paste("model=", model, " no tuning parameters", sep=" "))
+			fit <- train(
+				late ~ airline + origin_airport + ArrTime + DepDelay,        
+				method=model, data=train)
+		} else {
+			print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
+			fit <- train(
+				late ~ airline + origin_airport + ArrTime + DepDelay,        
+				method=model, data=train,
+				tuneGrid = expand.grid(tuning_parameters[i]))
+		}
+		print(Sys.time())
+		print(fit)
+		save(fit, file=paste(model, "_3.rda", sep=""))
+		predictions <- predict(fit, test)
+		print(paste("length predictions", length(predictions)))
+		print(paste("length test$late", length(test$late)))
+		cm <- confusionMatrix(data = predictions, reference = test$late)
+		save(cm, file=paste(model, "_3_cm.rda", sep=""))
+		print(cm)
+	}
+	rm(test, train)
+}
+
+if ( build_late_models_iteration_4 ) {
+	#
+	# now the entire non_validation data set (which comprises train and test)
+	# will be used to train the rpart model and the validation set will be
+	# used to validate it
+	#
+	load(non_validation_rda)
+	load(validation_rda)
+	print(Sys.time())
+	fit <- train(
+		late ~ airline + origin_airport + ArrTime + DepDelay,        
+		method="rpart", data=non_validation,
+		tuneGrid = data.frame(cp = 5e-04))
+	print(Sys.time())
+	print(fit)
+	save(fit, file="rpart.rda")
+	predictions <- predict(fit, validation)
+	print(paste("length predictions", length(predictions)))
+	print(paste("length validation$late", length(validation$late)))
+	cm <- confusionMatrix(data = predictions, reference = validation$late)
+	save(cm, file=paste("rpart", "_4_cm.rda", sep=""))
+	print(cm)
+}
