@@ -1,8 +1,21 @@
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
-if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+#
+# as per https://stackoverflow.com/questions/24131798/using-caret-package-but-getting-error-in-librarye1071
+#
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org", dependencies = TRUE)
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
 if(!require(utils)) install.packages("utils", repos = "http://cran.us.r-project.org")
+#
+# required to generate the pdf
+#
+if(!require(bookdown)) install.packages("bookdown", repos = "http://cran.us.r-project.org")
+if(!require(imager)) install.packages("imager", repos = "http://cran.us.r-project.org")
+
+#
+# this is required for rpart
+#
+if(!require(RSNNS)) install.packages("RSNNS", repos = "http://cran.us.r-project.org")
 
 library(tidyverse)
 library(caret)
@@ -270,7 +283,7 @@ if ( build_late_models_iteration_1 ) {
 			print("Please be patient")
 			begTime <- Sys.time()
 			print(begTime)
-			fit <- train(
+			fit <- caret::train(
 				late ~ airline + origin_airport + ArrTime + DepDelay,        
 				method=model, data=train,
 				tuneLength = 2)
@@ -282,7 +295,7 @@ if ( build_late_models_iteration_1 ) {
 			predictions <- predict(fit, test)
 			print(paste("length predictions", length(predictions)))
 			print(paste("length test$late", length(test$late)))
-			cm <- confusionMatrix(data = predictions, reference = test$late)
+			cm <- caret::confusionMatrix(data = predictions, reference = test$late)
 			save(cm, file=cm_rda_filename)
 			print(cm)
 		}
@@ -324,12 +337,12 @@ if ( build_late_models_iteration_2 ) {
 			fit <- NA			# scoping
 			if ( is.na(tuning_parameters[i]  ) ) {
 				print(paste("model=", model, " no tuning parameters", sep=" "))
-				fit <- train(
+				fit <- caret::train(
 					late ~ airline + origin_airport + ArrTime + DepDelay,        
 					method=model, data=train)
 			} else {
 				print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
-				fit <- train(
+				fit <- caret::train(
 					late ~ airline + origin_airport + ArrTime + DepDelay,        
 					method=model, data=train,
 					tuneGrid = expand.grid(tuning_parameters[i]))
@@ -342,7 +355,7 @@ if ( build_late_models_iteration_2 ) {
 			predictions <- predict(fit, test)
 			print(paste("length predictions", length(predictions)))
 			print(paste("length test$late", length(test$late)))
-			cm <- confusionMatrix(data = predictions, reference = test$late)
+			cm <- caret::confusionMatrix(data = predictions, reference = test$late)
 			save(cm, file=cm_rda_filename)
 			print(cm)
 		}
@@ -382,12 +395,12 @@ if ( build_late_models_iteration_3 ) {
 			fit <- NA			# scoping
 			if ( is.na(tuning_parameters[i]  ) ) {
 				print(paste("model=", model, " no tuning parameters", sep=" "))
-				fit <- train(
+				fit <- caret::train(
 					late ~ airline + origin_airport + ArrTime + DepDelay,        
 					method=model, data=train)
 			} else {
 				print(paste("model=", model, "tuning parameters", tuning_parameters[i], sep = " "))
-				fit <- train(
+				fit <- caret::train(
 					late ~ airline + origin_airport + ArrTime + DepDelay,        
 					method=model, data=train,
 					tuneGrid = expand.grid(tuning_parameters[i]))
@@ -400,7 +413,7 @@ if ( build_late_models_iteration_3 ) {
 			predictions <- predict(fit, test)
 			print(paste("length predictions", length(predictions)))
 			print(paste("length test$late", length(test$late)))
-			cm <- confusionMatrix(data = predictions, reference = test$late)
+			cm <- caret::confusionMatrix(data = predictions, reference = test$late)
 			save(cm, file=cm_rda_filename)
 			print(cm)
 		}
@@ -436,7 +449,7 @@ if ( build_late_models_iteration_4 ) {
 		print("Please be patient")
 		begTime <- Sys.time()
 		print(begTime)
- 		fit <- train(
+ 		fit <- caret::train(
 			late ~ airline + origin_airport + ArrTime + DepDelay,        
 			method="rpart", data=non_validation,
 			tuneGrid = data.frame(cp = rpart_best_cp))
@@ -448,7 +461,7 @@ if ( build_late_models_iteration_4 ) {
 		predictions <- predict(fit, validation)
 		print(paste("length predictions", length(predictions)))
 		print(paste("length validation$late", length(validation$late)))
-		cm <- confusionMatrix(data = predictions, reference = validation$late)
+		cm <- caret::confusionMatrix(data = predictions, reference = validation$late)
 		save(cm, file=cm_rda_filename)
 		print(cm)
 	}

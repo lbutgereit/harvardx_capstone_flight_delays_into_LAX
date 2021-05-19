@@ -26,6 +26,7 @@ library(lubridate)
 library(stringr)
 library(dplyr)
 if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+if(!require(bookdown)) install.packages("bookdown", repos = "http://cran.us.r-project.org")
 ```
 
 ```{r, echo=FALSE}
@@ -171,11 +172,12 @@ describes how the training set, test set, and validation set were created.
 Section \@ref(exploration) of this paper describes the exploration into the dataset and
 the analysis thereof.  This analysis specificially looked at how various data fields such
 as airline, departure airport, and time of day might affect the average arrival delays of
-an airflight.
+an airflight.  The assumption is that arrival delay values are indicative of whether or
+not a flight is late.
 
 Section \@ref(model) describes the various investigations into possible
 models to be able to predict 
-whether the flight was on-time or late.  There were a
+whether the flight was on-time or not.  There were a
 number of different strategies which were investigated.  For each
 model which attempted to predict whether a flight was on-time or late, the accuracy, sensitivity,
 and specificity are provided. 
@@ -873,7 +875,7 @@ fact.
 The distance of a flight may influence whether or not there is a delay in arrival.
 This relationship can be seen in Figure \@ref(fig:average-delay-by-distance).
 
-```{r, average-delay-by-distance, fig.cap="Average arrival delay by distance flown"}
+```{r, average-delay-by-distance, fig.cap="Average arrival delay by distance flown", warning=FALSE}
 flights_by_distance <- non_validation %>% group_by(Distance) %>%
 	summarize(average_delay = mean(ArrDelay), 
 	Distance = first(Distance))
